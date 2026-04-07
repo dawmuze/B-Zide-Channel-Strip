@@ -3,611 +3,315 @@
 BZideEditor::BZideEditor(BZideProcessor& p)
     : AudioProcessorEditor(&p), processor(p)
 {
-    setSize(kTotalWidth, kTotalHeight);
-    startTimerHz(30); // 30fps meter refresh
+    setLookAndFeel(&lnf);
+
+    int totalWidth = kSectionWidth * 6 + kOutputWidth;
+    setSize(totalWidth, kTotalHeight);
+    startTimerHz(30);
+
+    auto& apvts = processor.getAPVTS();
+
+    // ── PRE Section ──
+    preBypass.setClickingTogglesState(true);
+    preBypass.setColour(juce::TextButton::buttonOnColourId, juce::Colour(accentColor));
+    addAndMakeVisible(preBypass);
+    preBypassAtt = std::make_unique<ButtonAttachment>(apvts, "pre_bypass", preBypass);
+
+    preType.addItemList({"ODD", "EVEN", "HEAVY"}, 1);
+    addAndMakeVisible(preType);
+    preTypeAtt = std::make_unique<ComboAttachment>(apvts, "pre_type", preType);
+
+    setupRotaryKnob(preDrive); preDriveAtt = std::make_unique<SliderAttachment>(apvts, "pre_drive", preDrive);
+    setupRotaryKnob(preTone); preToneAtt = std::make_unique<SliderAttachment>(apvts, "pre_tone", preTone);
+    setupLabel(preDriveLabel, "DRIVE"); setupLabel(preToneLabel, "TONE");
+
+    // ── EQ Section ──
+    eqBypass.setClickingTogglesState(true);
+    eqBypass.setColour(juce::TextButton::buttonOnColourId, juce::Colour(accentColor));
+    addAndMakeVisible(eqBypass);
+    eqBypassAtt = std::make_unique<ButtonAttachment>(apvts, "eq_bypass", eqBypass);
+
+    setupRotaryKnob(eqHighGain); eqHighGainAtt = std::make_unique<SliderAttachment>(apvts, "eq_high_gain", eqHighGain);
+    setupRotaryKnob(eqHighFreq); eqHighFreqAtt = std::make_unique<SliderAttachment>(apvts, "eq_high_freq", eqHighFreq);
+    setupRotaryKnob(eqMidGain); eqMidGainAtt = std::make_unique<SliderAttachment>(apvts, "eq_mid_gain", eqMidGain);
+    setupRotaryKnob(eqMidFreq); eqMidFreqAtt = std::make_unique<SliderAttachment>(apvts, "eq_mid_freq", eqMidFreq);
+    setupRotaryKnob(eqMidQ); eqMidQAtt = std::make_unique<SliderAttachment>(apvts, "eq_mid_q", eqMidQ);
+    setupRotaryKnob(eqLowGain); eqLowGainAtt = std::make_unique<SliderAttachment>(apvts, "eq_low_gain", eqLowGain);
+    setupRotaryKnob(eqLowFreq); eqLowFreqAtt = std::make_unique<SliderAttachment>(apvts, "eq_low_freq", eqLowFreq);
+    setupRotaryKnob(eqHpf); eqHpfAtt = std::make_unique<SliderAttachment>(apvts, "eq_hpf", eqHpf);
+    setupRotaryKnob(eqLpf); eqLpfAtt = std::make_unique<SliderAttachment>(apvts, "eq_lpf", eqLpf);
+
+    // ── DS² Section ──
+    dsBypass.setClickingTogglesState(true);
+    dsBypass.setColour(juce::TextButton::buttonOnColourId, juce::Colour(accentColor));
+    addAndMakeVisible(dsBypass);
+    dsBypassAtt = std::make_unique<ButtonAttachment>(apvts, "ds_bypass", dsBypass);
+
+    setupRotaryKnob(dsFreq1); dsFreq1Att = std::make_unique<SliderAttachment>(apvts, "ds_freq1", dsFreq1);
+    setupRotaryKnob(dsThresh1); dsThresh1Att = std::make_unique<SliderAttachment>(apvts, "ds_thresh1", dsThresh1);
+    setupRotaryKnob(dsFreq2); dsFreq2Att = std::make_unique<SliderAttachment>(apvts, "ds_freq2", dsFreq2);
+    setupRotaryKnob(dsThresh2); dsThresh2Att = std::make_unique<SliderAttachment>(apvts, "ds_thresh2", dsThresh2);
+
+    // ── COMP Section ──
+    compBypass.setClickingTogglesState(true);
+    compBypass.setColour(juce::TextButton::buttonOnColourId, juce::Colour(accentColor));
+    addAndMakeVisible(compBypass);
+    compBypassAtt = std::make_unique<ButtonAttachment>(apvts, "comp_bypass", compBypass);
+
+    compType.addItemList({"VCA", "FET", "OPT"}, 1);
+    addAndMakeVisible(compType);
+    compTypeAtt = std::make_unique<ComboAttachment>(apvts, "comp_type", compType);
+
+    setupRotaryKnob(compThresh); compThreshAtt = std::make_unique<SliderAttachment>(apvts, "comp_threshold", compThresh);
+    setupRotaryKnob(compRatio); compRatioAtt = std::make_unique<SliderAttachment>(apvts, "comp_ratio", compRatio);
+    setupRotaryKnob(compAttack); compAttackAtt = std::make_unique<SliderAttachment>(apvts, "comp_attack", compAttack);
+    setupRotaryKnob(compRelease); compReleaseAtt = std::make_unique<SliderAttachment>(apvts, "comp_release", compRelease);
+    setupRotaryKnob(compMakeup); compMakeupAtt = std::make_unique<SliderAttachment>(apvts, "comp_makeup", compMakeup);
+    setupRotaryKnob(compMix); compMixAtt = std::make_unique<SliderAttachment>(apvts, "comp_mix", compMix);
+
+    // ── GATE Section ──
+    gateBypass.setClickingTogglesState(true);
+    gateBypass.setColour(juce::TextButton::buttonOnColourId, juce::Colour(accentColor));
+    addAndMakeVisible(gateBypass);
+    gateBypassAtt = std::make_unique<ButtonAttachment>(apvts, "gate_bypass", gateBypass);
+
+    gateType.addItemList({"GATE", "EXP"}, 1);
+    addAndMakeVisible(gateType);
+    gateTypeAtt = std::make_unique<ComboAttachment>(apvts, "gate_type", gateType);
+
+    setupRotaryKnob(gateThresh); gateThreshAtt = std::make_unique<SliderAttachment>(apvts, "gate_threshold", gateThresh);
+    setupRotaryKnob(gateAtten); gateAttenAtt = std::make_unique<SliderAttachment>(apvts, "gate_atten", gateAtten);
+    setupRotaryKnob(gateFloor); gateFloorAtt = std::make_unique<SliderAttachment>(apvts, "gate_floor", gateFloor);
+    setupRotaryKnob(gateAttack); gateAttackAtt = std::make_unique<SliderAttachment>(apvts, "gate_attack", gateAttack);
+    setupRotaryKnob(gateRelease); gateReleaseAtt = std::make_unique<SliderAttachment>(apvts, "gate_release", gateRelease);
+
+    // ── OUTPUT Section ──
+    outFader.setSliderStyle(juce::Slider::LinearVertical);
+    outFader.setTextBoxStyle(juce::Slider::TextBoxBelow, false, 60, 16);
+    outFader.setTextValueSuffix(" dB");
+    addAndMakeVisible(outFader);
+    outFaderAtt = std::make_unique<SliderAttachment>(apvts, "out_fader", outFader);
+
+    limiterBtn.setClickingTogglesState(true);
+    limiterBtn.setColour(juce::TextButton::buttonOnColourId, juce::Colour(accentColor));
+    addAndMakeVisible(limiterBtn);
+    limiterBtnAtt = std::make_unique<ButtonAttachment>(apvts, "out_limiter", limiterBtn);
+
+    setupRotaryKnob(limiterThresh); limiterThreshAtt = std::make_unique<SliderAttachment>(apvts, "out_limiter_thresh", limiterThresh);
+
+    outMode.addItemList({"STEREO", "MONO", "M/S"}, 1);
+    addAndMakeVisible(outMode);
+    outModeAtt = std::make_unique<ComboAttachment>(apvts, "out_mode", outMode);
 }
 
 BZideEditor::~BZideEditor()
 {
+    setLookAndFeel(nullptr);
     stopTimer();
 }
 
-void BZideEditor::timerCallback()
+void BZideEditor::timerCallback() { repaint(); }
+
+void BZideEditor::setupRotaryKnob(juce::Slider& s, const juce::String& suffix)
 {
-    repaint(); // Refresh meters
+    s.setSliderStyle(juce::Slider::RotaryHorizontalVerticalDrag);
+    s.setTextBoxStyle(juce::Slider::TextBoxBelow, false, 60, 14);
+    if (suffix.isNotEmpty()) s.setTextValueSuffix(suffix);
+    addAndMakeVisible(s);
+}
+
+void BZideEditor::setupLabel(juce::Label& l, const juce::String& text)
+{
+    l.setText(text, juce::dontSendNotification);
+    l.setFont(juce::Font(juce::FontOptions(9.0f)));
+    l.setJustificationType(juce::Justification::centred);
+    l.setColour(juce::Label::textColourId, juce::Colour(dimTextColor));
+    addAndMakeVisible(l);
+}
+
+void BZideEditor::drawSectionHeader(juce::Graphics& g, int x, const juce::String& title)
+{
+    g.setColour(juce::Colour(headerColor));
+    g.fillRect(x, 0, kSectionWidth, kHeaderHeight);
+    g.setColour(juce::Colour(0xFFAAAAAA));
+    g.setFont(juce::Font(juce::FontOptions(11.0f)).boldened());
+    g.drawText(title, x + 4, 0, kSectionWidth - 8, kHeaderHeight, juce::Justification::centredLeft);
 }
 
 void BZideEditor::paint(juce::Graphics& g)
 {
-    // Background
-    g.fillAll(juce::Colour(Colors::bg));
+    // Black background
+    g.fillAll(juce::Colour(bgColor));
 
-    auto& apvts = processor.getAPVTS();
     int x = 0;
 
-    // ══════════════════════════════════════════════════════════════════
-    //  PRE Section
-    // ══════════════════════════════════════════════════════════════════
+    // Section backgrounds + headers
+    for (int i = 0; i < 6; ++i)
     {
-        auto bounds = juce::Rectangle<int>(x, 0, kSectionWidth, kTotalHeight);
-        bool bypassed = *apvts.getRawParameterValue("pre_bypass") > 0.5f;
-        drawSection(g, bounds, "PRE", bypassed);
-
-        int cy = kHeaderHeight + 20;
-
-        // ST / DUO / MS buttons
-        auto typeNames = juce::StringArray{ "ST", "DUO", "MS" };
-        for (int i = 0; i < 3; ++i)
-        {
-            auto btnRect = juce::Rectangle<int>(x + 10, cy + i * 28, kSectionWidth - 20, 22);
-            drawButton(g, btnRect, typeNames[i], i == 0);
-        }
-        cy += 100;
-
-        // SATURATION label
-        g.setColour(juce::Colour(Colors::accent));
-        g.setFont(juce::Font(juce::FontOptions(10.0f)).boldened());
-        g.drawText("SATURATION", bounds.withY(cy).withHeight(16), juce::Justification::centred);
-        cy += 24;
-
-        // ODD / EVEN / HEAVY buttons
-        int preType = static_cast<int>(*apvts.getRawParameterValue("pre_type"));
-        auto satNames = juce::StringArray{ "ODD", "EVEN", "HEAVY" };
-        for (int i = 0; i < 3; ++i)
-        {
-            auto btnRect = juce::Rectangle<int>(x + 10, cy + i * 26, kSectionWidth - 20, 20);
-            drawButton(g, btnRect, satNames[i], i == preType);
-        }
-        cy += 90;
-
-        // Drive knob
-        float drive = *apvts.getRawParameterValue("pre_drive");
-        drawKnob(g, x + kSectionWidth / 2, cy, 28, drive, 0.0f, 100.0f, "DRIVE");
-        cy += 80;
-
-        // Tone knob
-        float tone = *apvts.getRawParameterValue("pre_tone");
-        drawKnob(g, x + kSectionWidth / 2, cy, 28, tone, -100.0f, 100.0f, "TONE");
-
+        g.setColour(juce::Colour(sectionColor));
+        g.fillRect(x, 0, kSectionWidth, kTotalHeight);
         x += kSectionWidth;
     }
+    // Output section
+    g.setColour(juce::Colour(sectionColor));
+    g.fillRect(x, 0, kOutputWidth, kTotalHeight);
 
-    // ══════════════════════════════════════════════════════════════════
-    //  EQ Section
-    // ══════════════════════════════════════════════════════════════════
-    {
-        auto bounds = juce::Rectangle<int>(x, 0, kSectionWidth, kTotalHeight);
-        bool bypassed = *apvts.getRawParameterValue("eq_bypass") > 0.5f;
-        drawSection(g, bounds, "EQ", bypassed);
+    // Headers
+    x = 0;
+    juce::StringArray headers = { "PRE", "EQ", "DS\xC2\xB2", "COMP", "GATE", "INSERT", "OUTPUT" };
+    for (int i = 0; i < 6; ++i) { drawSectionHeader(g, x, headers[i]); x += kSectionWidth; }
+    drawSectionHeader(g, x, headers[6]);
 
-        int cy = kHeaderHeight + 20;
-
-        // HIGH band
-        g.setColour(juce::Colour(Colors::dimText));
-        g.setFont(juce::Font(juce::FontOptions(11.0f)).boldened());
-        g.drawText("HIGH", bounds.withY(cy).withHeight(14), juce::Justification::centred);
-        cy += 16;
-        float hiGain = *apvts.getRawParameterValue("eq_high_gain");
-        drawKnob(g, x + kSectionWidth / 2, cy + 24, 22, hiGain, -18.0f, 18.0f, "GAIN");
-        cy += 70;
-
-        // Freq + Q readout
-        float hiFreq = *apvts.getRawParameterValue("eq_high_freq");
-        g.setColour(juce::Colour(Colors::dimText));
-        g.setFont(juce::Font(juce::FontOptions(9.0f)));
-        g.drawText(juce::String((int)hiFreq) + " Hz", bounds.withY(cy).withHeight(12), juce::Justification::centred);
-        cy += 30;
-
-        // MID band
-        g.setColour(juce::Colour(Colors::dimText));
-        g.setFont(juce::Font(juce::FontOptions(11.0f)).boldened());
-        g.drawText("MID", bounds.withY(cy).withHeight(14), juce::Justification::centred);
-        cy += 16;
-        float midGain = *apvts.getRawParameterValue("eq_mid_gain");
-        drawKnob(g, x + kSectionWidth / 2, cy + 24, 22, midGain, -18.0f, 18.0f, "GAIN");
-        cy += 70;
-
-        float midFreq = *apvts.getRawParameterValue("eq_mid_freq");
-        g.setColour(juce::Colour(Colors::dimText));
-        g.setFont(juce::Font(juce::FontOptions(9.0f)));
-        g.drawText(juce::String((int)midFreq) + " Hz  Q:" +
-                   juce::String(*apvts.getRawParameterValue("eq_mid_q"), 1),
-                   bounds.withY(cy).withHeight(12), juce::Justification::centred);
-        cy += 30;
-
-        // LOW band
-        g.setColour(juce::Colour(Colors::dimText));
-        g.setFont(juce::Font(juce::FontOptions(11.0f)).boldened());
-        g.drawText("LOW", bounds.withY(cy).withHeight(14), juce::Justification::centred);
-        cy += 16;
-        float lowGain = *apvts.getRawParameterValue("eq_low_gain");
-        drawKnob(g, x + kSectionWidth / 2, cy + 24, 22, lowGain, -18.0f, 18.0f, "GAIN");
-        cy += 70;
-
-        // HPF / LPF
-        float hpf = *apvts.getRawParameterValue("eq_hpf");
-        float lpf = *apvts.getRawParameterValue("eq_lpf");
-        g.setColour(juce::Colour(Colors::dimText));
-        g.setFont(juce::Font(juce::FontOptions(9.0f)));
-        g.drawText("HPF " + juce::String((int)hpf), bounds.withY(cy).withHeight(12).withTrimmedRight(kSectionWidth / 2), juce::Justification::centred);
-        g.drawText("LPF " + juce::String((int)lpf / 1000.0f, 1) + "k", bounds.withY(cy).withHeight(12).withTrimmedLeft(kSectionWidth / 2), juce::Justification::centred);
-
-        x += kSectionWidth;
-    }
-
-    // ══════════════════════════════════════════════════════════════════
-    //  DS² Section
-    // ══════════════════════════════════════════════════════════════════
-    {
-        auto bounds = juce::Rectangle<int>(x, 0, kSectionWidth, kTotalHeight);
-        bool bypassed = *apvts.getRawParameterValue("ds_bypass") > 0.5f;
-        drawSection(g, bounds, "DS\xC2\xB2", bypassed); // DS²
-
-        int cy = kHeaderHeight + 30;
-
-        // Band 1
-        g.setColour(juce::Colour(Colors::accent));
-        g.setFont(juce::Font(juce::FontOptions(13.0f)).boldened());
-        g.drawText("1", bounds.withY(cy).withHeight(20), juce::Justification::centred);
-        cy += 24;
-
-        float f1 = *apvts.getRawParameterValue("ds_freq1");
-        drawKnob(g, x + kSectionWidth / 2, cy + 24, 22, f1, 2000.0f, 12000.0f, "FREQ");
-        cy += 70;
-
-        float t1 = *apvts.getRawParameterValue("ds_thresh1");
-        drawKnob(g, x + kSectionWidth / 2, cy + 24, 22, t1, -60.0f, 0.0f, "THRESH");
-        cy += 90;
-
-        // Band 2
-        g.setColour(juce::Colour(Colors::accent));
-        g.setFont(juce::Font(juce::FontOptions(13.0f)).boldened());
-        g.drawText("2", bounds.withY(cy).withHeight(20), juce::Justification::centred);
-        cy += 24;
-
-        float f2 = *apvts.getRawParameterValue("ds_freq2");
-        drawKnob(g, x + kSectionWidth / 2, cy + 24, 22, f2, 4000.0f, 20000.0f, "FREQ");
-        cy += 70;
-
-        float t2 = *apvts.getRawParameterValue("ds_thresh2");
-        drawKnob(g, x + kSectionWidth / 2, cy + 24, 22, t2, -60.0f, 0.0f, "THRESH");
-
-        x += kSectionWidth;
-    }
-
-    // ══════════════════════════════════════════════════════════════════
-    //  COMP Section
-    // ══════════════════════════════════════════════════════════════════
-    {
-        auto bounds = juce::Rectangle<int>(x, 0, kSectionWidth, kTotalHeight);
-        bool bypassed = *apvts.getRawParameterValue("comp_bypass") > 0.5f;
-        drawSection(g, bounds, "COMP", bypassed);
-
-        int cy = kHeaderHeight + 20;
-
-        // ST / DUO / MS
-        auto modeNames = juce::StringArray{ "ST", "DUO", "MS" };
-        for (int i = 0; i < 3; ++i)
-        {
-            auto btnRect = juce::Rectangle<int>(x + 10, cy + i * 28, kSectionWidth - 20, 22);
-            drawButton(g, btnRect, modeNames[i], i == 0);
-        }
-        cy += 100;
-
-        // VCA / FET / OPT
-        int compType = static_cast<int>(*apvts.getRawParameterValue("comp_type"));
-        auto typeNames = juce::StringArray{ "VCA", "FET", "OPT" };
-        for (int i = 0; i < 3; ++i)
-        {
-            auto btnRect = juce::Rectangle<int>(x + 10 + i * 30, cy, 28, 20);
-            drawButton(g, btnRect, typeNames[i], i == compType);
-        }
-        cy += 34;
-
-        // THRESHOLD
-        float thresh = *apvts.getRawParameterValue("comp_threshold");
-        drawKnob(g, x + kSectionWidth / 2, cy + 24, 24, thresh, -50.0f, 0.0f, "THRESHOLD");
-        cy += 70;
-
-        // GR meter
-        float gr = processor.gainReduction.load();
-        auto grRect = juce::Rectangle<int>(x + 20, cy, kSectionWidth - 40, 60);
-        drawGRMeter(g, grRect, gr);
-        cy += 70;
-
-        // RATIO
-        float ratio = *apvts.getRawParameterValue("comp_ratio");
-        g.setColour(juce::Colour(Colors::knobFg));
-        g.setFont(juce::Font(juce::FontOptions(18.0f)).boldened());
-        g.drawText(juce::String(ratio, 1) + ":1", bounds.withY(cy).withHeight(24), juce::Justification::centred);
-        g.setColour(juce::Colour(Colors::dimText));
-        g.setFont(juce::Font(juce::FontOptions(9.0f)));
-        g.drawText("RATIO", bounds.withY(cy + 24).withHeight(12), juce::Justification::centred);
-        cy += 46;
-
-        // ATTACK
-        float attack = *apvts.getRawParameterValue("comp_attack");
-        drawKnob(g, x + kSectionWidth / 2, cy + 18, 18, attack, 0.1f, 150.0f, "ATTACK");
-        cy += 50;
-
-        // RELEASE
-        float release = *apvts.getRawParameterValue("comp_release");
-        drawKnob(g, x + kSectionWidth / 2, cy + 18, 18, release, 10.0f, 1000.0f, "RELEASE");
-        cy += 52;
-
-        // MIX / OUTPUT
-        float mix = *apvts.getRawParameterValue("comp_mix");
-        float output = *apvts.getRawParameterValue("comp_output");
-        g.setColour(juce::Colour(Colors::dimText));
-        g.setFont(juce::Font(juce::FontOptions(9.0f)));
-        g.drawText("MIX " + juce::String((int)mix) + "%", bounds.withY(cy).withHeight(12).withTrimmedRight(kSectionWidth / 2), juce::Justification::centred);
-        g.drawText("OUT " + juce::String(output, 1) + "dB", bounds.withY(cy).withHeight(12).withTrimmedLeft(kSectionWidth / 2), juce::Justification::centred);
-
-        x += kSectionWidth;
-    }
-
-    // ══════════════════════════════════════════════════════════════════
-    //  GATE Section
-    // ══════════════════════════════════════════════════════════════════
-    {
-        auto bounds = juce::Rectangle<int>(x, 0, kSectionWidth, kTotalHeight);
-        bool bypassed = *apvts.getRawParameterValue("gate_bypass") > 0.5f;
-        drawSection(g, bounds, "GATE", bypassed);
-
-        int cy = kHeaderHeight + 20;
-
-        // ST / DUO / MS
-        auto modeNames = juce::StringArray{ "ST", "DUO", "MS" };
-        for (int i = 0; i < 3; ++i)
-        {
-            auto btnRect = juce::Rectangle<int>(x + 10, cy + i * 28, kSectionWidth - 20, 22);
-            drawButton(g, btnRect, modeNames[i], i == 0);
-        }
-        cy += 100;
-
-        // GATE / EXP
-        int gateType = static_cast<int>(*apvts.getRawParameterValue("gate_type"));
-        drawButton(g, juce::Rectangle<int>(x + 10, cy, 42, 22), "GATE", gateType == 0);
-        drawButton(g, juce::Rectangle<int>(x + 56, cy, 42, 22), "EXP", gateType == 1);
-        cy += 36;
-
-        // THRESHOLD
-        float thresh = *apvts.getRawParameterValue("gate_threshold");
-        drawKnob(g, x + kSectionWidth / 2, cy + 24, 24, thresh, -80.0f, 0.0f, "THRESHOLD");
-        cy += 70;
-
-        // ATTEN
-        float atten = *apvts.getRawParameterValue("gate_atten");
-        drawKnob(g, x + kSectionWidth / 2, cy + 18, 18, atten, -60.0f, 0.0f, "ATTEN");
-        cy += 52;
-
-        // FLOOR
-        float floor = *apvts.getRawParameterValue("gate_floor");
-        drawKnob(g, x + kSectionWidth / 2, cy + 18, 18, floor, -60.0f, 0.0f, "FLOOR");
-        cy += 52;
-
-        // CLOSE
-        drawKnob(g, x + kSectionWidth / 2, cy + 18, 18, -48.0f, -60.0f, 0.0f, "CLOSE");
-        cy += 52;
-
-        // ATK / REL
-        float atk = *apvts.getRawParameterValue("gate_attack");
-        float rel = *apvts.getRawParameterValue("gate_release");
-        g.setColour(juce::Colour(Colors::dimText));
-        g.setFont(juce::Font(juce::FontOptions(9.0f)));
-        g.drawText("ATK " + juce::String(atk, 1) + "ms", bounds.withY(cy).withHeight(12), juce::Justification::centred);
-        cy += 14;
-        g.drawText("REL " + juce::String((int)rel) + "ms", bounds.withY(cy).withHeight(12), juce::Justification::centred);
-
-        x += kSectionWidth;
-    }
-
-    // ══════════════════════════════════════════════════════════════════
-    //  INSERT Section (placeholder)
-    // ══════════════════════════════════════════════════════════════════
-    {
-        auto bounds = juce::Rectangle<int>(x, 0, kSectionWidth, kTotalHeight);
-        drawSection(g, bounds, "INSERT", false);
-
-        g.setColour(juce::Colour(Colors::dimText));
-        g.setFont(juce::Font(juce::FontOptions(11.0f)));
-
-        // Vertical "INSERT" text
-        g.saveState();
-        g.addTransform(juce::AffineTransform::rotation(-juce::MathConstants<float>::halfPi,
-            (float)(x + kSectionWidth / 2), (float)(kTotalHeight / 2)));
-        g.drawText("No Insert", juce::Rectangle<int>(x, kTotalHeight / 2 - 50, kSectionWidth, 100),
-                   juce::Justification::centred);
-        g.restoreState();
-
-        x += kSectionWidth;
-    }
-
-    // ══════════════════════════════════════════════════════════════════
-    //  OUTPUT Section (meters + fader + limiter)
-    // ══════════════════════════════════════════════════════════════════
-    {
-        auto bounds = juce::Rectangle<int>(x, 0, kOutputWidth, kTotalHeight);
-
-        // Background
-        g.setColour(juce::Colour(Colors::sectionBg));
-        g.fillRect(bounds);
-
-        // Header
-        g.setColour(juce::Colour(0xFF333333));
-        g.fillRect(bounds.withHeight(kHeaderHeight));
-        g.setColour(juce::Colour(Colors::headerText));
-        g.setFont(juce::Font(juce::FontOptions(12.0f)).boldened());
-        g.drawText("OUTPUT", bounds.withHeight(kHeaderHeight), juce::Justification::centred);
-
-        int cy = kHeaderHeight + 10;
-
-        // VU Meters area — IN and OUT
-        int meterWidth = 50;
-        int meterHeight = 200;
-        int meterX1 = x + 20;
-        int meterX2 = x + kOutputWidth - 70;
-
-        // IN meter
-        float inL = processor.inputLevelL.load();
-        float inR = processor.inputLevelR.load();
-        drawMeter(g, juce::Rectangle<int>(meterX1, cy, meterWidth, meterHeight), (inL + inR) * 0.5f);
-        g.setColour(juce::Colour(Colors::dimText));
-        g.setFont(juce::Font(juce::FontOptions(9.0f)));
-        g.drawText("IN", juce::Rectangle<int>(meterX1, cy + meterHeight + 2, meterWidth, 12), juce::Justification::centred);
-
-        // GR meter (center)
-        float gr = processor.gainReduction.load();
-        int grX = x + kOutputWidth / 2 - 15;
-        drawGRMeter(g, juce::Rectangle<int>(grX, cy, 30, meterHeight), gr);
-        g.setColour(juce::Colour(Colors::dimText));
-        g.setFont(juce::Font(juce::FontOptions(9.0f)));
-        g.drawText("GR", juce::Rectangle<int>(grX, cy + meterHeight + 2, 30, 12), juce::Justification::centred);
-
-        // OUT meter
-        float outL = processor.outputLevelL.load();
-        float outR = processor.outputLevelR.load();
-        drawMeter(g, juce::Rectangle<int>(meterX2, cy, meterWidth, meterHeight), (outL + outR) * 0.5f);
-        g.setColour(juce::Colour(Colors::dimText));
-        g.setFont(juce::Font(juce::FontOptions(9.0f)));
-        g.drawText("OUT", juce::Rectangle<int>(meterX2, cy + meterHeight + 2, meterWidth, 12), juce::Justification::centred);
-
-        cy += meterHeight + 20;
-
-        // IN / GR / OUT selector buttons
-        auto btnNames = juce::StringArray{ "IN", "GR", "OUT" };
-        for (int i = 0; i < 3; ++i)
-        {
-            auto btnRect = juce::Rectangle<int>(x + 20 + i * 50, cy, 44, 20);
-            drawButton(g, btnRect, btnNames[i], i == 0);
-        }
-        cy += 30;
-
-        // Fader readout
-        float fader = *processor.getAPVTS().getRawParameterValue("out_fader");
-        g.setColour(juce::Colour(Colors::knobFg));
-        g.setFont(juce::Font(juce::FontOptions(16.0f)).boldened());
-        g.drawText(juce::String(fader, 1) + " dB", bounds.withY(cy).withHeight(24), juce::Justification::centred);
-        cy += 30;
-
-        // FADER visual (simple vertical bar)
-        {
-            auto faderBounds = juce::Rectangle<int>(x + kOutputWidth / 2 - 8, cy, 16, 100);
-            g.setColour(juce::Colour(0xFF444444));
-            g.fillRoundedRectangle(faderBounds.toFloat(), 4.0f);
-            float norm = juce::jmap(fader, -60.0f, 12.0f, 0.0f, 1.0f);
-            int knobY = cy + (int)((1.0f - norm) * 90.0f);
-            g.setColour(juce::Colour(Colors::accent));
-            g.fillRoundedRectangle((float)(x + kOutputWidth / 2 - 14), (float)knobY, 28.0f, 10.0f, 3.0f);
-        }
-        cy += 110;
-
-        // Limiter
-        bool limOn = *processor.getAPVTS().getRawParameterValue("out_limiter") > 0.5f;
-        drawButton(g, juce::Rectangle<int>(x + 20, cy, 60, 22), "LIMIT", limOn);
-        float limThresh = *processor.getAPVTS().getRawParameterValue("out_limiter_thresh");
-        g.setColour(juce::Colour(Colors::dimText));
-        g.setFont(juce::Font(juce::FontOptions(9.0f)));
-        g.drawText(juce::String(limThresh, 1) + " dB", juce::Rectangle<int>(x + 85, cy, 80, 22), juce::Justification::centredLeft);
-        cy += 32;
-
-        // Stereo / Mono / M-S
-        int outMode = static_cast<int>(*processor.getAPVTS().getRawParameterValue("out_mode"));
-        auto outModes = juce::StringArray{ "STEREO", "MONO", "M/S" };
-        for (int i = 0; i < 3; ++i)
-        {
-            auto btnRect = juce::Rectangle<int>(x + 10 + i * 55, cy, 50, 20);
-            drawButton(g, btnRect, outModes[i], i == outMode);
-        }
-    }
-
-    // Separators between sections
-    g.setColour(juce::Colour(Colors::separator));
+    // Separators
+    g.setColour(juce::Colour(separatorColor));
     for (int i = 1; i <= 6; ++i)
-    {
-        int sx = i * kSectionWidth;
-        if (i == 6) sx = 6 * kSectionWidth; // Before output
-        g.drawVerticalLine(sx, 0.0f, (float)kTotalHeight);
-    }
+        g.drawVerticalLine(i * kSectionWidth, 0.0f, (float)kTotalHeight);
+
+    // INSERT label (vertical)
+    g.setColour(juce::Colour(dimTextColor));
+    g.setFont(juce::Font(juce::FontOptions(13.0f)));
+    int insX = 5 * kSectionWidth;
+    g.saveState();
+    g.addTransform(juce::AffineTransform::rotation(-juce::MathConstants<float>::halfPi,
+        (float)(insX + kSectionWidth / 2), (float)(kTotalHeight / 2)));
+    g.drawText("No Insert", insX, kTotalHeight / 2 - 50, kSectionWidth, 100, juce::Justification::centred);
+    g.restoreState();
+
+    // OUTPUT meters
+    int outX = 6 * kSectionWidth;
+    int meterY = kHeaderHeight + 10;
+
+    // IN meter
+    drawMeter(g, juce::Rectangle<int>(outX + 15, meterY, 40, 200),
+              (processor.inputLevelL.load() + processor.inputLevelR.load()) * 0.5f);
+    g.setColour(juce::Colour(dimTextColor));
+    g.setFont(juce::Font(juce::FontOptions(9.0f)));
+    g.drawText("IN", outX + 15, meterY + 202, 40, 12, juce::Justification::centred);
+
+    // GR meter
+    drawGRMeter(g, juce::Rectangle<int>(outX + 70, meterY, 30, 200), processor.gainReduction.load());
+    g.drawText("GR", outX + 70, meterY + 202, 30, 12, juce::Justification::centred);
+
+    // OUT meter
+    drawMeter(g, juce::Rectangle<int>(outX + 115, meterY, 40, 200),
+              (processor.outputLevelL.load() + processor.outputLevelR.load()) * 0.5f);
+    g.drawText("OUT", outX + 115, meterY + 202, 40, 12, juce::Justification::centred);
 
     // Trial banner
-    drawTrialBanner(g);
-}
-
-void BZideEditor::resized() {}
-
-// ═══ HELPERS ═══
-
-void BZideEditor::drawSection(juce::Graphics& g, juce::Rectangle<int> bounds,
-                               const juce::String& title, bool bypassed)
-{
-    // Section background
-    g.setColour(juce::Colour(Colors::sectionBg));
-    g.fillRect(bounds);
-
-    // Header
-    g.setColour(juce::Colour(Colors::headerBg));
-    g.fillRect(bounds.withHeight(kHeaderHeight));
-
-    // Title
-    g.setColour(bypassed ? juce::Colour(Colors::bypassBtn) : juce::Colour(Colors::headerText));
-    g.setFont(juce::Font(juce::FontOptions(12.0f)).boldened());
-    g.drawText(title, bounds.withHeight(kHeaderHeight).reduced(4, 0), juce::Justification::centredLeft);
-
-    // Bypass indicator
-    if (bypassed)
+    auto status = processor.getLicenseStatus();
+    if (status != LicenseValidator::Status::Active)
     {
-        g.setColour(juce::Colour(Colors::bypassBtn));
-        g.setFont(juce::Font(juce::FontOptions(9.0f)));
-        g.drawText("OFF", bounds.withHeight(kHeaderHeight).reduced(4, 0), juce::Justification::centredRight);
+        juce::String text;
+        juce::Colour color;
+        switch (status)
+        {
+            case LicenseValidator::Status::Trial:
+                text = "Trial: " + juce::String(processor.getTrialDaysRemaining()) + " days remaining";
+                color = juce::Colour(0xFFf59e0b); break;
+            case LicenseValidator::Status::Expired: text = "Trial Expired"; color = juce::Colour(accentColor); break;
+            default: text = "Not Activated"; color = juce::Colour(dimTextColor); break;
+        }
+        auto banner = getLocalBounds().removeFromBottom(20);
+        g.setColour(juce::Colour(0xDD000000));
+        g.fillRect(banner);
+        g.setColour(color);
+        g.setFont(juce::Font(juce::FontOptions(11.0f)).boldened());
+        g.drawText(text, banner, juce::Justification::centred);
     }
 }
 
-void BZideEditor::drawKnob(juce::Graphics& g, int cx, int cy, int radius,
-                            float value, float min, float max, const juce::String& label,
-                            const juce::String& unit)
+void BZideEditor::resized()
 {
-    float norm = (max > min) ? (value - min) / (max - min) : 0.0f;
-    float angle = juce::jmap(norm, -2.4f, 2.4f); // ~270 degree sweep
+    int knobSize = 56;
+    int knobSmall = 44;
 
-    // Knob body
-    g.setColour(juce::Colour(0xFF3a3a3a));
-    g.fillEllipse((float)(cx - radius), (float)(cy - radius), (float)(radius * 2), (float)(radius * 2));
+    // ── PRE Section (x=0) ──
+    int x = 0, y = kHeaderHeight + 8;
+    preBypass.setBounds(x + 10, y, kSectionWidth - 20, 22); y += 30;
+    preType.setBounds(x + 10, y, kSectionWidth - 20, 22); y += 36;
+    preDrive.setBounds(x + (kSectionWidth - knobSize) / 2, y, knobSize, knobSize + 16); y += knobSize + 20;
+    preDriveLabel.setBounds(x, y, kSectionWidth, 12); y += 18;
+    preTone.setBounds(x + (kSectionWidth - knobSize) / 2, y, knobSize, knobSize + 16); y += knobSize + 20;
+    preToneLabel.setBounds(x, y, kSectionWidth, 12);
 
-    // Knob border
-    g.setColour(juce::Colour(0xFF555555));
-    g.drawEllipse((float)(cx - radius), (float)(cy - radius), (float)(radius * 2), (float)(radius * 2), 1.5f);
+    // ── EQ Section (x=120) ──
+    x = kSectionWidth; y = kHeaderHeight + 8;
+    eqBypass.setBounds(x + 10, y, kSectionWidth - 20, 22); y += 32;
+    eqHighGain.setBounds(x + 10, y, knobSmall, knobSmall + 14);
+    eqHighFreq.setBounds(x + 64, y, knobSmall, knobSmall + 14); y += knobSmall + 18;
+    eqMidGain.setBounds(x + 10, y, knobSmall, knobSmall + 14);
+    eqMidFreq.setBounds(x + 64, y, knobSmall, knobSmall + 14); y += knobSmall + 18;
+    eqMidQ.setBounds(x + 35, y, knobSmall, knobSmall + 14); y += knobSmall + 18;
+    eqLowGain.setBounds(x + 10, y, knobSmall, knobSmall + 14);
+    eqLowFreq.setBounds(x + 64, y, knobSmall, knobSmall + 14); y += knobSmall + 18;
+    eqHpf.setBounds(x + 10, y, knobSmall, knobSmall + 14);
+    eqLpf.setBounds(x + 64, y, knobSmall, knobSmall + 14);
 
-    // Pointer line
-    float lineLen = (float)radius * 0.7f;
-    float endX = cx + std::sin(angle) * lineLen;
-    float endY = cy - std::cos(angle) * lineLen;
-    g.setColour(juce::Colour(Colors::knobFg));
-    g.drawLine((float)cx, (float)cy, endX, endY, 2.0f);
+    // ── DS² Section (x=240) ──
+    x = 2 * kSectionWidth; y = kHeaderHeight + 8;
+    dsBypass.setBounds(x + 10, y, kSectionWidth - 20, 22); y += 36;
+    dsFreq1.setBounds(x + (kSectionWidth - knobSize) / 2, y, knobSize, knobSize + 16); y += knobSize + 20;
+    dsThresh1.setBounds(x + (kSectionWidth - knobSize) / 2, y, knobSize, knobSize + 16); y += knobSize + 30;
+    dsFreq2.setBounds(x + (kSectionWidth - knobSize) / 2, y, knobSize, knobSize + 16); y += knobSize + 20;
+    dsThresh2.setBounds(x + (kSectionWidth - knobSize) / 2, y, knobSize, knobSize + 16);
 
-    // Value text
-    g.setColour(juce::Colour(Colors::dimText));
-    g.setFont(juce::Font(juce::FontOptions(9.0f)));
-    juce::String valStr;
-    if (std::abs(value) >= 1000.0f)
-        valStr = juce::String(value / 1000.0f, 1) + "k";
-    else if (std::abs(value) >= 100.0f)
-        valStr = juce::String((int)value);
-    else
-        valStr = juce::String(value, 1);
-    g.drawText(valStr + unit, juce::Rectangle<int>(cx - 30, cy + radius + 2, 60, 12), juce::Justification::centred);
+    // ── COMP Section (x=360) ──
+    x = 3 * kSectionWidth; y = kHeaderHeight + 8;
+    compBypass.setBounds(x + 10, y, kSectionWidth - 20, 22); y += 28;
+    compType.setBounds(x + 10, y, kSectionWidth - 20, 22); y += 30;
+    compThresh.setBounds(x + (kSectionWidth - knobSize) / 2, y, knobSize, knobSize + 16); y += knobSize + 16;
+    compRatio.setBounds(x + (kSectionWidth - knobSmall) / 2, y, knobSmall, knobSmall + 14); y += knobSmall + 14;
+    compAttack.setBounds(x + 10, y, knobSmall, knobSmall + 14);
+    compRelease.setBounds(x + 64, y, knobSmall, knobSmall + 14); y += knobSmall + 14;
+    compMakeup.setBounds(x + 10, y, knobSmall, knobSmall + 14);
+    compMix.setBounds(x + 64, y, knobSmall, knobSmall + 14);
 
-    // Label
-    g.setFont(juce::Font(juce::FontOptions(8.0f)));
-    g.drawText(label, juce::Rectangle<int>(cx - 30, cy + radius + 14, 60, 10), juce::Justification::centred);
+    // ── GATE Section (x=480) ──
+    x = 4 * kSectionWidth; y = kHeaderHeight + 8;
+    gateBypass.setBounds(x + 10, y, kSectionWidth - 20, 22); y += 28;
+    gateType.setBounds(x + 10, y, kSectionWidth - 20, 22); y += 32;
+    gateThresh.setBounds(x + (kSectionWidth - knobSize) / 2, y, knobSize, knobSize + 16); y += knobSize + 16;
+    gateAtten.setBounds(x + (kSectionWidth - knobSmall) / 2, y, knobSmall, knobSmall + 14); y += knobSmall + 14;
+    gateFloor.setBounds(x + (kSectionWidth - knobSmall) / 2, y, knobSmall, knobSmall + 14); y += knobSmall + 14;
+    gateAttack.setBounds(x + 10, y, knobSmall, knobSmall + 14);
+    gateRelease.setBounds(x + 64, y, knobSmall, knobSmall + 14);
+
+    // ── INSERT Section (x=600) — empty ──
+
+    // ── OUTPUT Section (x=720) ──
+    x = 6 * kSectionWidth; y = kHeaderHeight + 230;
+    outFader.setBounds(x + 60, y, 60, 200); y += 210;
+    limiterBtn.setBounds(x + 15, y, 70, 22);
+    limiterThresh.setBounds(x + 90, y - 6, 80, 34); y += 30;
+    outMode.setBounds(x + 15, y, kOutputWidth - 30, 22);
 }
 
-void BZideEditor::drawButton(juce::Graphics& g, juce::Rectangle<int> bounds,
-                              const juce::String& text, bool active)
+void BZideEditor::drawMeter(juce::Graphics& g, juce::Rectangle<int> bounds, float levelDb)
 {
-    g.setColour(active ? juce::Colour(Colors::activeBtn) : juce::Colour(0xFF3a3a3a));
+    g.setColour(juce::Colour(0xFF0A0A0E));
     g.fillRoundedRectangle(bounds.toFloat(), 3.0f);
 
-    g.setColour(active ? juce::Colours::white : juce::Colour(Colors::dimText));
-    g.setFont(juce::Font(juce::FontOptions(10.0f)).boldened());
-    g.drawText(text, bounds, juce::Justification::centred);
-}
-
-void BZideEditor::drawMeter(juce::Graphics& g, juce::Rectangle<int> bounds,
-                             float levelDb, float minDb, float maxDb)
-{
-    // Background
-    g.setColour(juce::Colour(0xFF111111));
-    g.fillRoundedRectangle(bounds.toFloat(), 3.0f);
-
-    // Level bar
-    float norm = juce::jmap(juce::jlimit(minDb, maxDb, levelDb), minDb, maxDb, 0.0f, 1.0f);
+    float norm = juce::jmap(juce::jlimit(-60.0f, 6.0f, levelDb), -60.0f, 6.0f, 0.0f, 1.0f);
     int barH = (int)(norm * bounds.getHeight());
-
     if (barH > 0)
     {
-        auto barBounds = bounds.withTop(bounds.getBottom() - barH);
-        // Green to yellow to red gradient
-        float redStart = juce::jmap(0.0f, minDb, maxDb, 0.0f, 1.0f); // 0 dB mark
-        if (norm > redStart)
-        {
-            // Red zone
-            g.setColour(juce::Colour(Colors::meterRed));
-            g.fillRoundedRectangle(barBounds.toFloat(), 2.0f);
-        }
-        else
-        {
-            g.setColour(juce::Colour(Colors::meterGreen));
-            g.fillRoundedRectangle(barBounds.toFloat(), 2.0f);
-        }
-    }
-
-    // dB marks
-    g.setColour(juce::Colour(0xFF444444));
-    g.setFont(juce::Font(juce::FontOptions(7.0f)));
-    float dbMarks[] = { 0.0f, -6.0f, -12.0f, -24.0f, -48.0f };
-    for (float db : dbMarks)
-    {
-        float y = juce::jmap(db, maxDb, minDb, (float)bounds.getY(), (float)bounds.getBottom());
-        g.drawHorizontalLine((int)y, (float)bounds.getX(), (float)bounds.getRight());
+        auto bar = bounds.withTop(bounds.getBottom() - barH);
+        g.setColour(norm > 0.9f ? juce::Colour(accentColor) : juce::Colour(greenColor));
+        g.fillRoundedRectangle(bar.toFloat(), 2.0f);
     }
 }
 
 void BZideEditor::drawGRMeter(juce::Graphics& g, juce::Rectangle<int> bounds, float grDb)
 {
-    // Background
-    g.setColour(juce::Colour(0xFF111111));
+    g.setColour(juce::Colour(0xFF0A0A0E));
     g.fillRoundedRectangle(bounds.toFloat(), 3.0f);
 
-    // GR bar (goes down from top)
     float norm = juce::jlimit(0.0f, 1.0f, std::abs(grDb) / 20.0f);
     int barH = (int)(norm * bounds.getHeight());
-
     if (barH > 0)
     {
-        auto barBounds = bounds.withHeight(barH);
-        g.setColour(juce::Colour(Colors::accent));
-        g.fillRoundedRectangle(barBounds.toFloat(), 2.0f);
+        auto bar = bounds.withHeight(barH);
+        g.setColour(juce::Colour(0xFFf59e0b));
+        g.fillRoundedRectangle(bar.toFloat(), 2.0f);
     }
-
-    // GR value
-    g.setColour(juce::Colour(Colors::dimText));
-    g.setFont(juce::Font(juce::FontOptions(8.0f)));
-    g.drawText(juce::String(grDb, 1), bounds.withHeight(12).withY(bounds.getBottom() + 2), juce::Justification::centred);
-}
-
-void BZideEditor::drawTrialBanner(juce::Graphics& g)
-{
-    auto status = processor.getLicenseStatus();
-    if (status == LicenseValidator::Status::Active) return;
-
-    juce::String text;
-    juce::Colour color;
-
-    switch (status)
-    {
-        case LicenseValidator::Status::Trial:
-            text = "Trial: " + juce::String(processor.getTrialDaysRemaining()) + " days remaining";
-            color = juce::Colour(Colors::accent);
-            break;
-        case LicenseValidator::Status::Expired:
-            text = "Trial Expired";
-            color = juce::Colour(Colors::meterRed);
-            break;
-        case LicenseValidator::Status::Locked:
-            text = "Connection Required";
-            color = juce::Colour(Colors::meterRed);
-            break;
-        default:
-            text = "Not Activated";
-            color = juce::Colour(Colors::dimText);
-            break;
-    }
-
-    auto banner = juce::Rectangle<int>(0, kTotalHeight - 20, kTotalWidth, 20);
-    g.setColour(juce::Colour(0xDD000000));
-    g.fillRect(banner);
-    g.setColour(color);
-    g.setFont(juce::Font(juce::FontOptions(11.0f)).boldened());
-    g.drawText(text, banner, juce::Justification::centred);
 }
