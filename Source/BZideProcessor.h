@@ -2,11 +2,10 @@
 
 #include <juce_audio_processors/juce_audio_processors.h>
 #include <juce_dsp/juce_dsp.h>
-#include "DSP/PreampProcessor.h"
-#include "DSP/CompressorProcessor.h"
-#include "DSP/GateProcessor.h"
-#include "DSP/SaturationProcessor.h"
-#include "DSP/ClipperProcessor.h"
+#include "DSP/BZideSaturation.h"
+#include "DSP/BZideCompressor.h"
+#include "DSP/BZideGate.h"
+#include "DSP/BZideLimiter.h"
 #include "DSP/DeEsserProcessor.h"
 #include "LicenseValidator.h"
 
@@ -66,12 +65,12 @@ private:
     juce::AudioProcessorValueTreeState apvts;
     LicenseValidator licenseValidator_;
 
-    // DSP processors
-    SaturationProcessor saturation_;
+    // DSP processors (standalone — no apvts dependency)
+    BZideSaturation saturation_;
     DeEsserProcessor deEsser_;
-    CompressorProcessor compressor_;
-    GateProcessor gate_;
-    ClipperProcessor limiter_;
+    BZideCompressor compressor_;
+    BZideGate gate_;
+    BZideLimiter limiter_;
 
     // EQ filters (3-band + HPF + LPF)
     using MonoChain = juce::dsp::ProcessorChain<

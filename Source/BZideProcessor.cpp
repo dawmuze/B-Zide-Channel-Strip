@@ -157,13 +157,13 @@ void BZideProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiBu
     }
 
     // ── PRE (Saturation) ──
-    bool preBypassed = *apvts.getRawParameterValue("pre_bypass") > 0.5f;
-    if (!preBypassed)
     {
+        bool bypassed = *apvts.getRawParameterValue("pre_bypass") > 0.5f;
+        saturation_.setBypass(bypassed);
         saturation_.setDrive(*apvts.getRawParameterValue("pre_drive"));
         saturation_.setTone(*apvts.getRawParameterValue("pre_tone"));
         int preType = static_cast<int>(*apvts.getRawParameterValue("pre_type"));
-        saturation_.setModel(static_cast<SaturationProcessor::Model>(preType));
+        saturation_.setMode(static_cast<BZideSaturation::Mode>(preType));
         saturation_.process(buffer);
     }
 
@@ -197,9 +197,9 @@ void BZideProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiBu
     }
 
     // ── COMP ──
-    bool compBypassed = *apvts.getRawParameterValue("comp_bypass") > 0.5f;
-    if (!compBypassed)
     {
+        bool bypassed = *apvts.getRawParameterValue("comp_bypass") > 0.5f;
+        compressor_.setBypass(bypassed);
         compressor_.setThreshold(*apvts.getRawParameterValue("comp_threshold"));
         compressor_.setRatio(*apvts.getRawParameterValue("comp_ratio"));
         compressor_.setAttack(*apvts.getRawParameterValue("comp_attack"));
@@ -207,31 +207,29 @@ void BZideProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiBu
         compressor_.setMakeupGain(*apvts.getRawParameterValue("comp_makeup"));
         compressor_.setMix(*apvts.getRawParameterValue("comp_mix"));
         int compType = static_cast<int>(*apvts.getRawParameterValue("comp_type"));
-        compressor_.setModel(static_cast<CompressorProcessor::Model>(compType));
+        compressor_.setModel(static_cast<BZideCompressor::Model>(compType));
         compressor_.process(buffer);
         gainReduction.store(compressor_.getGainReduction());
     }
-    else
-    {
-        gainReduction.store(0.0f);
-    }
 
     // ── GATE ──
-    bool gateBypassed = *apvts.getRawParameterValue("gate_bypass") > 0.5f;
-    if (!gateBypassed)
     {
+        bool bypassed = *apvts.getRawParameterValue("gate_bypass") > 0.5f;
+        gate_.setBypass(bypassed);
         gate_.setThreshold(*apvts.getRawParameterValue("gate_threshold"));
+        gate_.setAttenuation(*apvts.getRawParameterValue("gate_atten"));
+        gate_.setFloor(*apvts.getRawParameterValue("gate_floor"));
         gate_.setAttack(*apvts.getRawParameterValue("gate_attack"));
         gate_.setRelease(*apvts.getRawParameterValue("gate_release"));
         int gateType = static_cast<int>(*apvts.getRawParameterValue("gate_type"));
-        gate_.setModel(static_cast<GateProcessor::Model>(gateType));
+        gate_.setMode(static_cast<BZideGate::Mode>(gateType));
         gate_.process(buffer);
     }
 
     // ── LIMITER ──
-    bool limiterOn = *apvts.getRawParameterValue("out_limiter") > 0.5f;
-    if (limiterOn)
     {
+        bool on = *apvts.getRawParameterValue("out_limiter") > 0.5f;
+        limiter_.setBypass(!on);
         limiter_.setThreshold(*apvts.getRawParameterValue("out_limiter_thresh"));
         limiter_.process(buffer);
     }

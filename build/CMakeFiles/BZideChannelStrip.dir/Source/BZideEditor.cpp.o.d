@@ -1494,11 +1494,10 @@ CMakeFiles/BZideChannelStrip.dir/Source/BZideEditor.cpp.o: \
   /Users/josephnegron/Documents/B-Zide-Channel-Strip/JUCE/modules/juce_dsp/widgets/juce_Limiter.h \
   /Users/josephnegron/Documents/B-Zide-Channel-Strip/JUCE/modules/juce_dsp/widgets/juce_Phaser.h \
   /Users/josephnegron/Documents/B-Zide-Channel-Strip/JUCE/modules/juce_dsp/widgets/juce_Chorus.h \
-  /Users/josephnegron/Documents/B-Zide-Channel-Strip/Source/DSP/PreampProcessor.h \
-  /Users/josephnegron/Documents/B-Zide-Channel-Strip/Source/DSP/CompressorProcessor.h \
-  /Users/josephnegron/Documents/B-Zide-Channel-Strip/Source/DSP/GateProcessor.h \
-  /Users/josephnegron/Documents/B-Zide-Channel-Strip/Source/DSP/SaturationProcessor.h \
-  /Users/josephnegron/Documents/B-Zide-Channel-Strip/Source/DSP/ClipperProcessor.h \
+  /Users/josephnegron/Documents/B-Zide-Channel-Strip/Source/DSP/BZideSaturation.h \
+  /Users/josephnegron/Documents/B-Zide-Channel-Strip/Source/DSP/BZideCompressor.h \
+  /Users/josephnegron/Documents/B-Zide-Channel-Strip/Source/DSP/BZideGate.h \
+  /Users/josephnegron/Documents/B-Zide-Channel-Strip/Source/DSP/BZideLimiter.h \
   /Users/josephnegron/Documents/B-Zide-Channel-Strip/Source/DSP/DeEsserProcessor.h \
   /Users/josephnegron/Documents/B-Zide-Channel-Strip/Source/LicenseValidator.h \
   /Users/josephnegron/Documents/B-Zide-Channel-Strip/JUCE/modules/juce_cryptography/juce_cryptography.h \
