@@ -269,7 +269,7 @@ private:
     static constexpr int kSectionWidth = 140;
     static constexpr int kOutputWidth = 200;
     static constexpr int kHeaderHeight = 28;
-    static constexpr int kTotalHeight = 620;
+    static constexpr int kTotalHeight = 720;
 
     // Colors
     static constexpr juce::uint32 bgColor        = 0xFF08080A;

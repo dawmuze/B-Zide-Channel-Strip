@@ -24,7 +24,7 @@ BZideEditor::BZideEditor(BZideProcessor& p)
     addAndMakeVisible(preType);
     preTypeAtt = std::make_unique<ComboAttachment>(apvts, "pre_type", preType);
 
-    setupRotaryKnob(preDrive); preDriveAtt = std::make_unique<SliderAttachment>(apvts, "pre_drive", preDrive);
+    setupRotaryKnob(preDrive, "%"); preDriveAtt = std::make_unique<SliderAttachment>(apvts, "pre_drive", preDrive);
     setupRotaryKnob(preTone); preToneAtt = std::make_unique<SliderAttachment>(apvts, "pre_tone", preTone);
     setupLabel(preDriveLabel, "DRIVE"); setupLabel(preToneLabel, "TONE");
 
@@ -202,7 +202,50 @@ void BZideEditor::paint(juce::Graphics& g)
     for (int i = 1; i <= 6; ++i)
         g.drawVerticalLine(i * kSectionWidth, 0.0f, (float)kTotalHeight);
 
-    // LEDs drawn in paintOverChildren() so they render on top
+    // ── Section dividers (painted under knobs is fine) ──
+
+    // EQ dividers
+    {
+        int sx = kSectionWidth;
+        auto drawDivider = [&](int divY) {
+            g.setColour(juce::Colour(0xFF333338));
+            g.drawHorizontalLine(divY, (float)(sx + 8), (float)(sx + kSectionWidth - 8));
+        };
+        drawDivider(eqHighGain.getBottom() + 6);
+        drawDivider(eqMidQ.getBottom() + 6);
+        drawDivider(eqLowGain.getBottom() + 6);
+    }
+
+    // DS² divider
+    {
+        int sx = 2 * kSectionWidth;
+        g.setColour(juce::Colour(0xFF333338));
+        g.drawHorizontalLine(dsThresh1.getBottom() + 6, (float)(sx + 8), (float)(sx + kSectionWidth - 8));
+    }
+
+    // COMP dividers
+    {
+        int sx = 3 * kSectionWidth;
+        auto drawDiv = [&](int divY) {
+            g.setColour(juce::Colour(0xFF333338));
+            g.drawHorizontalLine(divY, (float)(sx + 8), (float)(sx + kSectionWidth - 8));
+        };
+        drawDiv(compThresh.getBottom() + 4);
+        drawDiv(compRatio.getBottom() + 4);
+        drawDiv(compAttack.getBottom() + 4);
+    }
+
+    // GATE dividers
+    {
+        int sx = 4 * kSectionWidth;
+        auto drawDiv = [&](int divY) {
+            g.setColour(juce::Colour(0xFF333338));
+            g.drawHorizontalLine(divY, (float)(sx + 8), (float)(sx + kSectionWidth - 8));
+        };
+        drawDiv(gateThresh.getBottom() + 4);
+        drawDiv(gateAtten.getBottom() + 4);
+        drawDiv(gateFloor.getBottom() + 4);
+    }
 
     // INSERT label (vertical)
     g.setColour(juce::Colour(dimTextColor));
@@ -259,7 +302,102 @@ void BZideEditor::paint(juce::Graphics& g)
 
 void BZideEditor::paintOverChildren(juce::Graphics& g)
 {
-    // KI-2A LED bombillas — painted OVER everything so they're always visible
+    // ── Knob labels — painted OVER children so LED dots don't cover them ──
+    g.setFont(juce::Font(juce::FontOptions(8.0f)).boldened());
+    g.setColour(juce::Colour(dimTextColor));
+
+    auto labelAbove = [&](const juce::Slider& s, const juce::String& text) {
+        g.drawText(text, s.getX() - 10, s.getY() - 20, s.getWidth() + 20, 11, juce::Justification::centred);
+    };
+    auto labelBetween = [&](const juce::Slider& s1, const juce::Slider& s2,
+                            const juce::String& t1, const juce::String& t2) {
+        g.drawText(t1, s1.getX() - 10, s1.getY() - 20, s1.getWidth() + 20, 11, juce::Justification::centred);
+        g.drawText(t2, s2.getX() - 10, s2.getY() - 20, s2.getWidth() + 20, 11, juce::Justification::centred);
+    };
+
+    // PRE
+    labelAbove(preDrive, "DRIVE");
+    labelAbove(preTone, "TONE");
+
+    // EQ — with section titles
+    {
+        int sx = kSectionWidth;
+
+        g.setColour(juce::Colour(0xFFDD6600));
+        g.setFont(juce::Font(juce::FontOptions(8.0f)).boldened());
+        g.drawText("HIGH", sx, eqHighGain.getY() - 14, kSectionWidth, 10, juce::Justification::centred);
+        g.setColour(juce::Colour(dimTextColor));
+        g.setFont(juce::Font(juce::FontOptions(7.0f)).boldened());
+        labelBetween(eqHighGain, eqHighFreq, "GAIN", "FREQ");
+
+        g.setColour(juce::Colour(0xFFDD6600));
+        g.setFont(juce::Font(juce::FontOptions(8.0f)).boldened());
+        g.drawText("MID", sx, eqMidGain.getY() - 14, kSectionWidth, 10, juce::Justification::centred);
+        g.setColour(juce::Colour(dimTextColor));
+        g.setFont(juce::Font(juce::FontOptions(7.0f)).boldened());
+        labelBetween(eqMidGain, eqMidFreq, "GAIN", "FREQ");
+        labelAbove(eqMidQ, "Q");
+
+        g.setColour(juce::Colour(0xFFDD6600));
+        g.setFont(juce::Font(juce::FontOptions(8.0f)).boldened());
+        g.drawText("LOW", sx, eqLowGain.getY() - 14, kSectionWidth, 10, juce::Justification::centred);
+        g.setColour(juce::Colour(dimTextColor));
+        g.setFont(juce::Font(juce::FontOptions(7.0f)).boldened());
+        labelBetween(eqLowGain, eqLowFreq, "GAIN", "FREQ");
+
+        g.setColour(juce::Colour(0xFFDD6600));
+        g.setFont(juce::Font(juce::FontOptions(8.0f)).boldened());
+        g.drawText("FILTERS", sx, eqHpf.getY() - 14, kSectionWidth, 10, juce::Justification::centred);
+        g.setColour(juce::Colour(dimTextColor));
+        g.setFont(juce::Font(juce::FontOptions(7.0f)).boldened());
+        labelBetween(eqHpf, eqLpf, "HPF", "LPF");
+    }
+
+    g.setFont(juce::Font(juce::FontOptions(8.0f)).boldened());
+    g.setColour(juce::Colour(dimTextColor));
+
+    // DS²
+    {
+        int sx = 2 * kSectionWidth;
+
+        g.setColour(juce::Colour(0xFFDD6600));
+        g.setFont(juce::Font(juce::FontOptions(9.0f)).boldened());
+        g.drawText("BAND 1", sx, dsFreq1.getY() - 16, kSectionWidth, 12, juce::Justification::centred);
+        g.setColour(juce::Colour(dimTextColor));
+        g.setFont(juce::Font(juce::FontOptions(8.0f)).boldened());
+        labelAbove(dsFreq1, "FREQ");
+        labelAbove(dsThresh1, "THRESH");
+
+        g.setColour(juce::Colour(0xFFDD6600));
+        g.setFont(juce::Font(juce::FontOptions(9.0f)).boldened());
+        g.drawText("BAND 2", sx, dsFreq2.getY() - 16, kSectionWidth, 12, juce::Justification::centred);
+        g.setColour(juce::Colour(dimTextColor));
+        g.setFont(juce::Font(juce::FontOptions(8.0f)).boldened());
+        labelAbove(dsFreq2, "FREQ");
+        labelAbove(dsThresh2, "THRESH");
+    }
+
+    // COMP
+    {
+        g.setColour(juce::Colour(dimTextColor));
+        g.setFont(juce::Font(juce::FontOptions(8.0f)).boldened());
+        labelAbove(compThresh, "THRESH");
+        labelAbove(compRatio, "RATIO");
+        labelBetween(compAttack, compRelease, "ATK", "REL");
+        labelBetween(compMakeup, compMix, "GAIN", "MIX");
+    }
+
+    // GATE
+    {
+        g.setColour(juce::Colour(dimTextColor));
+        g.setFont(juce::Font(juce::FontOptions(8.0f)).boldened());
+        labelAbove(gateThresh, "THRESH");
+        labelAbove(gateAtten, "ATTEN");
+        labelAbove(gateFloor, "FLOOR");
+        labelBetween(gateAttack, gateRelease, "ATK", "REL");
+    }
+
+    // ── KI-2A LED bombillas — painted OVER everything so they're always visible ──
     juce::Colour ledColor(0xFFDD2200);
     float ledR = 3.5f;
 
@@ -275,16 +413,13 @@ void BZideEditor::paintOverChildren(juce::Graphics& g)
 
         if (on)
         {
-            // Outer glow — KI-2A style (12% alpha, 2.5x radius)
             g.setColour(ledColor.withAlpha(0.12f));
             g.fillEllipse(cx - ledR * 2.5f, cy - ledR * 2.5f, ledR * 5.0f, ledR * 5.0f);
-            // Solid LED
             g.setColour(ledColor);
             g.fillEllipse(cx - ledR, cy - ledR, ledR * 2.0f, ledR * 2.0f);
         }
         else
         {
-            // Off LED — dark circle
             g.setColour(juce::Colour(0xFF2A2A30));
             g.fillEllipse(cx - ledR, cy - ledR, ledR * 2.0f, ledR * 2.0f);
         }
@@ -293,8 +428,8 @@ void BZideEditor::paintOverChildren(juce::Graphics& g)
 
 void BZideEditor::resized()
 {
-    int knobSize = 60;
-    int knobSmall = 48;
+    int knobSize = 52;
+    int knobSmall = 42;
     auto centerKnob = [&](juce::Slider& s, int sx, int sy, int size) {
         s.setBounds(sx + (kSectionWidth - size) / 2, sy, size, size + 14);
     };
@@ -310,31 +445,34 @@ void BZideEditor::resized()
 
     // ── PRE Section (x=0) ──
     int x = 0, y = kHeaderHeight + 8;
+    int labelGap = 24; // space for label above each knob (must clear LED dots)
     preLED.setBounds(x + kSectionWidth - ledW - 2, 5, ledW, ledW);
     preBypass.setBounds(x + 8, y, kSectionWidth - 24, 22); y += 28;
     preType.setBounds(x + 8, y, kSectionWidth - 16, 22); y += 34;
-    centerKnob(preDrive, x, y, knobSize); y += knobSize + 18;
-    preDriveLabel.setBounds(x, y, kSectionWidth, 12); y += 20;
-    centerKnob(preTone, x, y, knobSize); y += knobSize + 18;
-    preToneLabel.setBounds(x, y, kSectionWidth, 12);
+    y += labelGap;
+    centerKnob(preDrive, x, y, knobSize); y += knobSize + 22;
+    y += labelGap;
+    centerKnob(preTone, x, y, knobSize);
 
     // ── EQ Section ──
     x = kSectionWidth; y = kHeaderHeight + 8;
     eqLED.setBounds(x + kSectionWidth - ledW - 2, 5, ledW, ledW);
-    eqBypass.setBounds(x + 8, y, kSectionWidth - 24, 22); y += 30;
-    centerKnobPair(eqHighGain, eqHighFreq, x, y, knobSmall); y += knobSmall + 16;
-    centerKnobPair(eqMidGain, eqMidFreq, x, y, knobSmall); y += knobSmall + 16;
-    centerKnob(eqMidQ, x, y, knobSmall); y += knobSmall + 16;
-    centerKnobPair(eqLowGain, eqLowFreq, x, y, knobSmall); y += knobSmall + 16;
+    eqBypass.setBounds(x + 8, y, kSectionWidth - 24, 22); y += 28;
+    y += labelGap + 12; // extra for "HIGH" label
+    centerKnobPair(eqHighGain, eqHighFreq, x, y, knobSmall); y += knobSmall + labelGap + 12;
+    centerKnobPair(eqMidGain, eqMidFreq, x, y, knobSmall); y += knobSmall + labelGap + 4;
+    centerKnob(eqMidQ, x, y, knobSmall); y += knobSmall + labelGap + 12;
+    centerKnobPair(eqLowGain, eqLowFreq, x, y, knobSmall); y += knobSmall + labelGap + 4;
     centerKnobPair(eqHpf, eqLpf, x, y, knobSmall);
 
     // ── DS² Section ──
     x = 2 * kSectionWidth; y = kHeaderHeight + 8;
     dsLED.setBounds(x + kSectionWidth - ledW - 2, 5, ledW, ledW);
-    dsBypass.setBounds(x + 8, y, kSectionWidth - 24, 22); y += 34;
-    centerKnob(dsFreq1, x, y, knobSize); y += knobSize + 18;
-    centerKnob(dsThresh1, x, y, knobSize); y += knobSize + 26;
-    centerKnob(dsFreq2, x, y, knobSize); y += knobSize + 18;
+    dsBypass.setBounds(x + 8, y, kSectionWidth - 24, 22); y += 32;
+    y += labelGap + 4;
+    centerKnob(dsFreq1, x, y, knobSize); y += knobSize + labelGap + 4;
+    centerKnob(dsThresh1, x, y, knobSize); y += knobSize + labelGap + 10;
+    centerKnob(dsFreq2, x, y, knobSize); y += knobSize + labelGap + 4;
     centerKnob(dsThresh2, x, y, knobSize);
 
     // ── COMP Section ──
@@ -342,9 +480,10 @@ void BZideEditor::resized()
     compLED.setBounds(x + kSectionWidth - ledW - 2, 5, ledW, ledW);
     compBypass.setBounds(x + 8, y, kSectionWidth - 24, 22); y += 26;
     compType.setBounds(x + 8, y, kSectionWidth - 16, 22); y += 28;
-    centerKnob(compThresh, x, y, knobSize); y += knobSize + 14;
-    centerKnob(compRatio, x, y, knobSmall); y += knobSmall + 12;
-    centerKnobPair(compAttack, compRelease, x, y, knobSmall); y += knobSmall + 12;
+    y += labelGap;
+    centerKnob(compThresh, x, y, knobSize); y += knobSize + labelGap + 2;
+    centerKnob(compRatio, x, y, knobSmall); y += knobSmall + labelGap + 2;
+    centerKnobPair(compAttack, compRelease, x, y, knobSmall); y += knobSmall + labelGap + 2;
     centerKnobPair(compMakeup, compMix, x, y, knobSmall);
 
     // ── GATE Section ──
@@ -352,9 +491,10 @@ void BZideEditor::resized()
     gateLED.setBounds(x + kSectionWidth - ledW - 2, 5, ledW, ledW);
     gateBypass.setBounds(x + 8, y, kSectionWidth - 24, 22); y += 26;
     gateType.setBounds(x + 8, y, kSectionWidth - 16, 22); y += 30;
-    centerKnob(gateThresh, x, y, knobSize); y += knobSize + 14;
-    centerKnob(gateAtten, x, y, knobSmall); y += knobSmall + 12;
-    centerKnob(gateFloor, x, y, knobSmall); y += knobSmall + 12;
+    y += labelGap;
+    centerKnob(gateThresh, x, y, knobSize); y += knobSize + labelGap + 2;
+    centerKnob(gateAtten, x, y, knobSmall); y += knobSmall + labelGap + 2;
+    centerKnob(gateFloor, x, y, knobSmall); y += knobSmall + labelGap + 2;
     centerKnobPair(gateAttack, gateRelease, x, y, knobSmall);
 
     // ── INSERT Section — empty ──
