@@ -1,0 +1,2 @@
+/usr/bin/ar qc libBZideAssets.a CMakeFiles/BZideAssets.dir/juce_binarydata_BZideAssets/JuceLibraryCode/BinaryData1.cpp.o CMakeFiles/BZideAssets.dir/juce_binarydata_BZideAssets/JuceLibraryCode/BinaryData2.cpp.o
+/usr/bin/ranlib libBZideAssets.a
