@@ -34,7 +34,6 @@ public:
         float cy = (float)y + (float)h * 0.5f;
         float angle = startAngle + sliderPos * (endAngle - startAngle);
 
-        // KI-2A style: solid black knob, no border, subtle shadow
         // Shadow
         g.setColour(juce::Colour(0x40000000));
         g.fillEllipse(cx - radius + 1.0f, cy - radius + 1.0f, radius * 2.0f, radius * 2.0f);
@@ -43,11 +42,41 @@ public:
         g.setColour(juce::Colour(0xFF111114));
         g.fillEllipse(cx - radius, cy - radius, radius * 2.0f, radius * 2.0f);
 
-        // Subtle highlight on top edge (3D effect)
+        // Subtle highlight on top edge
         g.setColour(juce::Colour(0x15FFFFFF));
         g.drawEllipse(cx - radius, cy - radius, radius * 2.0f, radius * 2.0f, 0.5f);
 
-        // White pointer line — KI-2A style (thin, from center to edge)
+        // LED dots around the knob — smaller to avoid clipping
+        int numDots = 17;
+        float dotRadius = radius + 4.0f;
+        float dotSize = 1.5f;
+        for (int i = 0; i < numDots; ++i)
+        {
+            float t = (float)i / (float)(numDots - 1);
+            float dotAngle = startAngle + t * (endAngle - startAngle);
+            float dx = cx + std::sin(dotAngle) * dotRadius;
+            float dy = cy - std::cos(dotAngle) * dotRadius;
+
+            bool lit = (dotAngle <= angle && sliderPos > 0.01f);
+
+            if (lit)
+            {
+                // Glow
+                g.setColour(juce::Colour(0xFFDD2200).withAlpha(0.2f));
+                g.fillEllipse(dx - dotSize * 2.0f, dy - dotSize * 2.0f, dotSize * 4.0f, dotSize * 4.0f);
+                // Dot
+                g.setColour(juce::Colour(0xFFDD2200));
+                g.fillEllipse(dx - dotSize, dy - dotSize, dotSize * 2.0f, dotSize * 2.0f);
+            }
+            else
+            {
+                // Off dot
+                g.setColour(juce::Colour(0xFF2A2A30));
+                g.fillEllipse(dx - dotSize * 0.7f, dy - dotSize * 0.7f, dotSize * 1.4f, dotSize * 1.4f);
+            }
+        }
+
+        // White pointer line — KI-2A style
         float pointerLen = radius * 0.8f;
         float px = cx + std::sin(angle) * pointerLen;
         float py = cy - std::cos(angle) * pointerLen;
@@ -106,6 +135,116 @@ public:
             g.drawRoundedRectangle(thumbX, thumbY, thumbW, thumbH, 3.0f, 0.5f);
         }
     }
+
+    // KI-2A exact button style with LED glow
+    void drawButtonBackground(juce::Graphics& g, juce::Button& btn,
+                              const juce::Colour&, bool isMouseOver, bool isButtonDown) override
+    {
+        auto area = btn.getLocalBounds().toFloat().reduced(0.5f);
+        bool active = btn.getToggleState();
+
+        if (active)
+        {
+            // LED GLOW — KI-2A signature effect
+            // Outer glow (large, very transparent)
+            g.setColour(juce::Colour(0xFF8B1515).withAlpha(0.12f));
+            g.fillRoundedRectangle(area.expanded(4.0f), 5.0f);
+
+            // Inner glow (medium)
+            g.setColour(juce::Colour(0xFF8B1515).withAlpha(0.25f));
+            g.fillRoundedRectangle(area.expanded(2.0f), 4.0f);
+
+            // Button body — BTN_ACTIVE
+            g.setColour(juce::Colour(0xFF8B1515));
+            g.fillRoundedRectangle(area, 3.0f);
+
+            if (isMouseOver)
+            {
+                g.setColour(juce::Colour(0x15FFFFFF));
+                g.fillRoundedRectangle(area, 3.0f);
+            }
+        }
+        else
+        {
+            // Button body — BTN_BG
+            g.setColour(juce::Colour(0xFF1A1A1E));
+            g.fillRoundedRectangle(area, 3.0f);
+
+            // Border — BTN_BORDER
+            g.setColour(juce::Colour(0xFF555558));
+            g.drawRoundedRectangle(area, 3.0f, 0.8f);
+
+            if (isMouseOver)
+            {
+                g.setColour(juce::Colour(0x10FFFFFF));
+                g.fillRoundedRectangle(area, 3.0f);
+            }
+        }
+
+        if (isButtonDown)
+        {
+            g.setColour(juce::Colour(0x20000000));
+            g.fillRoundedRectangle(area, 3.0f);
+        }
+    }
+
+    void drawButtonText(juce::Graphics& g, juce::TextButton& btn,
+                        bool, bool) override
+    {
+        auto area = btn.getLocalBounds();
+        bool active = btn.getToggleState();
+
+        g.setColour(active ? juce::Colours::white : juce::Colour(0xFF666670));
+        g.setFont(juce::Font(juce::FontOptions().withHeight(9.0f).withStyle("Bold")));
+        g.drawText(btn.getButtonText(), area, juce::Justification::centred, false);
+    }
+};
+
+//==============================================================================
+// LED Component — KI-2A style bombilla with glow
+//==============================================================================
+class LEDComponent : public juce::Component
+{
+public:
+    LEDComponent() { setInterceptsMouseClicks(false, false); setOpaque(false); }
+
+    void setOn(bool on) { if (isOn != on) { isOn = on; repaint(); } }
+    void setColor(juce::Colour c) { color = c; }
+
+    void paint(juce::Graphics& g) override
+    {
+        // Fill entire bounds so we can SEE it
+        auto b = getLocalBounds().toFloat();
+        float cx = b.getCentreX();
+        float cy = b.getCentreY();
+        float r = 4.0f;
+
+        if (isOn)
+        {
+            // Outer glow — bright red
+            g.setColour(color.withAlpha(0.2f));
+            g.fillEllipse(b);
+            // Mid glow
+            g.setColour(color.withAlpha(0.4f));
+            g.fillEllipse(cx - r * 2.0f, cy - r * 2.0f, r * 4.0f, r * 4.0f);
+            // Solid LED
+            g.setColour(color);
+            g.fillEllipse(cx - r, cy - r, r * 2.0f, r * 2.0f);
+            // Bright center
+            g.setColour(juce::Colours::white.withAlpha(0.7f));
+            g.fillEllipse(cx - 1.5f, cy - 1.5f, 3.0f, 3.0f);
+        }
+        else
+        {
+            // Dark dot — always visible
+            g.setColour(juce::Colour(0xFF333338));
+            g.fillEllipse(cx - r, cy - r, r * 2.0f, r * 2.0f);
+        }
+    }
+
+private:
+    bool isOn = false;
+    juce::Colour color { 0xFFDD2200 };
 };
 
 //==============================================================================
@@ -118,6 +257,7 @@ public:
     ~BZideEditor() override;
 
     void paint(juce::Graphics& g) override;
+    void paintOverChildren(juce::Graphics& g) override;
     void resized() override;
     void timerCallback() override;
 
@@ -126,8 +266,8 @@ private:
     BZideLookAndFeel lnf;
 
     // Layout constants
-    static constexpr int kSectionWidth = 120;
-    static constexpr int kOutputWidth = 190;
+    static constexpr int kSectionWidth = 140;
+    static constexpr int kOutputWidth = 200;
     static constexpr int kHeaderHeight = 28;
     static constexpr int kTotalHeight = 620;
 
@@ -204,6 +344,9 @@ private:
     std::unique_ptr<SliderAttachment> outFaderAtt, limiterThreshAtt;
     std::unique_ptr<ButtonAttachment> limiterBtnAtt;
     std::unique_ptr<ComboAttachment> outModeAtt;
+
+    // LED indicators
+    LEDComponent preLED, eqLED, dsLED, compLED, gateLED, limLED;
 
     // Helpers
     void setupRotaryKnob(juce::Slider& s, const juce::String& suffix = "");

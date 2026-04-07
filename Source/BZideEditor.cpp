@@ -11,9 +11,12 @@ BZideEditor::BZideEditor(BZideProcessor& p)
 
     auto& apvts = processor.getAPVTS();
 
+    // LED indicators
+    addAndMakeVisible(preLED); addAndMakeVisible(eqLED); addAndMakeVisible(dsLED);
+    addAndMakeVisible(compLED); addAndMakeVisible(gateLED); addAndMakeVisible(limLED);
+
     // ── PRE Section ──
     preBypass.setClickingTogglesState(true);
-    preBypass.setColour(juce::TextButton::buttonOnColourId, juce::Colour(accentColor));
     addAndMakeVisible(preBypass);
     preBypassAtt = std::make_unique<ButtonAttachment>(apvts, "pre_bypass", preBypass);
 
@@ -110,12 +113,25 @@ BZideEditor::~BZideEditor()
     stopTimer();
 }
 
-void BZideEditor::timerCallback() { repaint(); }
+void BZideEditor::timerCallback()
+{
+    // Sync LED states with buttons
+    preLED.setOn(preBypass.getToggleState());
+    eqLED.setOn(eqBypass.getToggleState());
+    dsLED.setOn(dsBypass.getToggleState());
+    compLED.setOn(compBypass.getToggleState());
+    gateLED.setOn(gateBypass.getToggleState());
+    limLED.setOn(limiterBtn.getToggleState());
+    repaint();
+}
 
 void BZideEditor::setupRotaryKnob(juce::Slider& s, const juce::String& suffix)
 {
     s.setSliderStyle(juce::Slider::RotaryHorizontalVerticalDrag);
-    s.setTextBoxStyle(juce::Slider::TextBoxBelow, false, 60, 14);
+    s.setTextBoxStyle(juce::Slider::TextBoxBelow, false, 55, 13);
+    s.setColour(juce::Slider::textBoxTextColourId, juce::Colour(0xFF999999));
+    s.setColour(juce::Slider::textBoxBackgroundColourId, juce::Colour(0xFF0A0A0E));
+    s.setColour(juce::Slider::textBoxOutlineColourId, juce::Colour(0x00000000));
     if (suffix.isNotEmpty()) s.setTextValueSuffix(suffix);
     addAndMakeVisible(s);
 }
@@ -136,6 +152,25 @@ void BZideEditor::drawSectionHeader(juce::Graphics& g, int x, const juce::String
     g.setColour(juce::Colour(0xFFAAAAAA));
     g.setFont(juce::Font(juce::FontOptions(11.0f)).boldened());
     g.drawText(title, x + 4, 0, kSectionWidth - 8, kHeaderHeight, juce::Justification::centredLeft);
+}
+
+// KI-2A exact LED function
+static void drawLED(juce::Graphics& g, float cx, float cy, float r, bool on, juce::Colour color)
+{
+    if (on)
+    {
+        // Outer glow — large, very transparent
+        g.setColour(color.withAlpha(0.12f));
+        g.fillEllipse(cx - r * 2.5f, cy - r * 2.5f, r * 5.0f, r * 5.0f);
+        // Solid LED
+        g.setColour(color);
+        g.fillEllipse(cx - r, cy - r, r * 2.0f, r * 2.0f);
+    }
+    else
+    {
+        g.setColour(juce::Colour(0xFF2A2A30));
+        g.fillEllipse(cx - r, cy - r, r * 2.0f, r * 2.0f);
+    }
 }
 
 void BZideEditor::paint(juce::Graphics& g)
@@ -166,6 +201,8 @@ void BZideEditor::paint(juce::Graphics& g)
     g.setColour(juce::Colour(separatorColor));
     for (int i = 1; i <= 6; ++i)
         g.drawVerticalLine(i * kSectionWidth, 0.0f, (float)kTotalHeight);
+
+    // LEDs drawn in paintOverChildren() so they render on top
 
     // INSERT label (vertical)
     g.setColour(juce::Colour(dimTextColor));
@@ -220,69 +257,114 @@ void BZideEditor::paint(juce::Graphics& g)
     }
 }
 
+void BZideEditor::paintOverChildren(juce::Graphics& g)
+{
+    // KI-2A LED bombillas — painted OVER everything so they're always visible
+    juce::Colour ledColor(0xFFDD2200);
+    float ledR = 3.5f;
+
+    struct LedInfo { juce::TextButton& btn; };
+    LedInfo leds[] = { {preBypass}, {eqBypass}, {dsBypass}, {compBypass}, {gateBypass}, {limiterBtn} };
+
+    for (auto& led : leds)
+    {
+        auto b = led.btn.getBounds();
+        float cx = (float)(b.getRight() + 10);
+        float cy = (float)(b.getCentreY());
+        bool on = led.btn.getToggleState();
+
+        if (on)
+        {
+            // Outer glow — KI-2A style (12% alpha, 2.5x radius)
+            g.setColour(ledColor.withAlpha(0.12f));
+            g.fillEllipse(cx - ledR * 2.5f, cy - ledR * 2.5f, ledR * 5.0f, ledR * 5.0f);
+            // Solid LED
+            g.setColour(ledColor);
+            g.fillEllipse(cx - ledR, cy - ledR, ledR * 2.0f, ledR * 2.0f);
+        }
+        else
+        {
+            // Off LED — dark circle
+            g.setColour(juce::Colour(0xFF2A2A30));
+            g.fillEllipse(cx - ledR, cy - ledR, ledR * 2.0f, ledR * 2.0f);
+        }
+    }
+}
+
 void BZideEditor::resized()
 {
-    int knobSize = 56;
-    int knobSmall = 44;
+    int knobSize = 60;
+    int knobSmall = 48;
+    auto centerKnob = [&](juce::Slider& s, int sx, int sy, int size) {
+        s.setBounds(sx + (kSectionWidth - size) / 2, sy, size, size + 14);
+    };
+    auto centerKnobPair = [&](juce::Slider& s1, juce::Slider& s2, int sx, int sy, int size) {
+        int gap = 4;
+        int totalW = size * 2 + gap;
+        int startX = sx + (kSectionWidth - totalW) / 2;
+        s1.setBounds(startX, sy, size, size + 14);
+        s2.setBounds(startX + size + gap, sy, size, size + 14);
+    };
+
+    int ledW = 18;
 
     // ── PRE Section (x=0) ──
     int x = 0, y = kHeaderHeight + 8;
-    preBypass.setBounds(x + 10, y, kSectionWidth - 20, 22); y += 30;
-    preType.setBounds(x + 10, y, kSectionWidth - 20, 22); y += 36;
-    preDrive.setBounds(x + (kSectionWidth - knobSize) / 2, y, knobSize, knobSize + 16); y += knobSize + 20;
-    preDriveLabel.setBounds(x, y, kSectionWidth, 12); y += 18;
-    preTone.setBounds(x + (kSectionWidth - knobSize) / 2, y, knobSize, knobSize + 16); y += knobSize + 20;
+    preLED.setBounds(x + kSectionWidth - ledW - 2, 5, ledW, ledW);
+    preBypass.setBounds(x + 8, y, kSectionWidth - 24, 22); y += 28;
+    preType.setBounds(x + 8, y, kSectionWidth - 16, 22); y += 34;
+    centerKnob(preDrive, x, y, knobSize); y += knobSize + 18;
+    preDriveLabel.setBounds(x, y, kSectionWidth, 12); y += 20;
+    centerKnob(preTone, x, y, knobSize); y += knobSize + 18;
     preToneLabel.setBounds(x, y, kSectionWidth, 12);
 
-    // ── EQ Section (x=120) ──
+    // ── EQ Section ──
     x = kSectionWidth; y = kHeaderHeight + 8;
-    eqBypass.setBounds(x + 10, y, kSectionWidth - 20, 22); y += 32;
-    eqHighGain.setBounds(x + 10, y, knobSmall, knobSmall + 14);
-    eqHighFreq.setBounds(x + 64, y, knobSmall, knobSmall + 14); y += knobSmall + 18;
-    eqMidGain.setBounds(x + 10, y, knobSmall, knobSmall + 14);
-    eqMidFreq.setBounds(x + 64, y, knobSmall, knobSmall + 14); y += knobSmall + 18;
-    eqMidQ.setBounds(x + 35, y, knobSmall, knobSmall + 14); y += knobSmall + 18;
-    eqLowGain.setBounds(x + 10, y, knobSmall, knobSmall + 14);
-    eqLowFreq.setBounds(x + 64, y, knobSmall, knobSmall + 14); y += knobSmall + 18;
-    eqHpf.setBounds(x + 10, y, knobSmall, knobSmall + 14);
-    eqLpf.setBounds(x + 64, y, knobSmall, knobSmall + 14);
+    eqLED.setBounds(x + kSectionWidth - ledW - 2, 5, ledW, ledW);
+    eqBypass.setBounds(x + 8, y, kSectionWidth - 24, 22); y += 30;
+    centerKnobPair(eqHighGain, eqHighFreq, x, y, knobSmall); y += knobSmall + 16;
+    centerKnobPair(eqMidGain, eqMidFreq, x, y, knobSmall); y += knobSmall + 16;
+    centerKnob(eqMidQ, x, y, knobSmall); y += knobSmall + 16;
+    centerKnobPair(eqLowGain, eqLowFreq, x, y, knobSmall); y += knobSmall + 16;
+    centerKnobPair(eqHpf, eqLpf, x, y, knobSmall);
 
-    // ── DS² Section (x=240) ──
+    // ── DS² Section ──
     x = 2 * kSectionWidth; y = kHeaderHeight + 8;
-    dsBypass.setBounds(x + 10, y, kSectionWidth - 20, 22); y += 36;
-    dsFreq1.setBounds(x + (kSectionWidth - knobSize) / 2, y, knobSize, knobSize + 16); y += knobSize + 20;
-    dsThresh1.setBounds(x + (kSectionWidth - knobSize) / 2, y, knobSize, knobSize + 16); y += knobSize + 30;
-    dsFreq2.setBounds(x + (kSectionWidth - knobSize) / 2, y, knobSize, knobSize + 16); y += knobSize + 20;
-    dsThresh2.setBounds(x + (kSectionWidth - knobSize) / 2, y, knobSize, knobSize + 16);
+    dsLED.setBounds(x + kSectionWidth - ledW - 2, 5, ledW, ledW);
+    dsBypass.setBounds(x + 8, y, kSectionWidth - 24, 22); y += 34;
+    centerKnob(dsFreq1, x, y, knobSize); y += knobSize + 18;
+    centerKnob(dsThresh1, x, y, knobSize); y += knobSize + 26;
+    centerKnob(dsFreq2, x, y, knobSize); y += knobSize + 18;
+    centerKnob(dsThresh2, x, y, knobSize);
 
-    // ── COMP Section (x=360) ──
+    // ── COMP Section ──
     x = 3 * kSectionWidth; y = kHeaderHeight + 8;
-    compBypass.setBounds(x + 10, y, kSectionWidth - 20, 22); y += 28;
-    compType.setBounds(x + 10, y, kSectionWidth - 20, 22); y += 30;
-    compThresh.setBounds(x + (kSectionWidth - knobSize) / 2, y, knobSize, knobSize + 16); y += knobSize + 16;
-    compRatio.setBounds(x + (kSectionWidth - knobSmall) / 2, y, knobSmall, knobSmall + 14); y += knobSmall + 14;
-    compAttack.setBounds(x + 10, y, knobSmall, knobSmall + 14);
-    compRelease.setBounds(x + 64, y, knobSmall, knobSmall + 14); y += knobSmall + 14;
-    compMakeup.setBounds(x + 10, y, knobSmall, knobSmall + 14);
-    compMix.setBounds(x + 64, y, knobSmall, knobSmall + 14);
+    compLED.setBounds(x + kSectionWidth - ledW - 2, 5, ledW, ledW);
+    compBypass.setBounds(x + 8, y, kSectionWidth - 24, 22); y += 26;
+    compType.setBounds(x + 8, y, kSectionWidth - 16, 22); y += 28;
+    centerKnob(compThresh, x, y, knobSize); y += knobSize + 14;
+    centerKnob(compRatio, x, y, knobSmall); y += knobSmall + 12;
+    centerKnobPair(compAttack, compRelease, x, y, knobSmall); y += knobSmall + 12;
+    centerKnobPair(compMakeup, compMix, x, y, knobSmall);
 
-    // ── GATE Section (x=480) ──
+    // ── GATE Section ──
     x = 4 * kSectionWidth; y = kHeaderHeight + 8;
-    gateBypass.setBounds(x + 10, y, kSectionWidth - 20, 22); y += 28;
-    gateType.setBounds(x + 10, y, kSectionWidth - 20, 22); y += 32;
-    gateThresh.setBounds(x + (kSectionWidth - knobSize) / 2, y, knobSize, knobSize + 16); y += knobSize + 16;
-    gateAtten.setBounds(x + (kSectionWidth - knobSmall) / 2, y, knobSmall, knobSmall + 14); y += knobSmall + 14;
-    gateFloor.setBounds(x + (kSectionWidth - knobSmall) / 2, y, knobSmall, knobSmall + 14); y += knobSmall + 14;
-    gateAttack.setBounds(x + 10, y, knobSmall, knobSmall + 14);
-    gateRelease.setBounds(x + 64, y, knobSmall, knobSmall + 14);
+    gateLED.setBounds(x + kSectionWidth - ledW - 2, 5, ledW, ledW);
+    gateBypass.setBounds(x + 8, y, kSectionWidth - 24, 22); y += 26;
+    gateType.setBounds(x + 8, y, kSectionWidth - 16, 22); y += 30;
+    centerKnob(gateThresh, x, y, knobSize); y += knobSize + 14;
+    centerKnob(gateAtten, x, y, knobSmall); y += knobSmall + 12;
+    centerKnob(gateFloor, x, y, knobSmall); y += knobSmall + 12;
+    centerKnobPair(gateAttack, gateRelease, x, y, knobSmall);
 
-    // ── INSERT Section (x=600) — empty ──
+    // ── INSERT Section — empty ──
 
-    // ── OUTPUT Section (x=720) ──
-    x = 6 * kSectionWidth; y = kHeaderHeight + 230;
-    outFader.setBounds(x + 60, y, 60, 200); y += 210;
+    // ── OUTPUT Section ──
+    x = 6 * kSectionWidth; y = kHeaderHeight + 220;
+    outFader.setBounds(x + (kOutputWidth - 60) / 2, y, 60, 200); y += 210;
     limiterBtn.setBounds(x + 15, y, 70, 22);
-    limiterThresh.setBounds(x + 90, y - 6, 80, 34); y += 30;
+    limLED.setBounds(x + 88, y + 2, ledW, ledW);
+    limiterThresh.setBounds(x + 108, y - 4, 80, 30); y += 30;
     outMode.setBounds(x + 15, y, kOutputWidth - 30, 22);
 }
 
