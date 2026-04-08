@@ -45,6 +45,11 @@ target_sources(BZideChannelStrip PRIVATE
 juce_add_binary_data(BZideAssets SOURCES
     Assets/meter_face_white_hires.png
     Assets/knob.png
+    Assets/back.jpg
+    Assets/knob_texture.jpg
+    Assets/meter_face_gold.png
+    Assets/bzide_logo.jpg
+    Assets/fader_thumb.jpg
 )
 
 target_compile_definitions(BZideChannelStrip PRIVATE

@@ -10,8 +10,8 @@ VUMeterFace::VUMeterFace()
 
 void VUMeterFace::loadFaceImage()
 {
-    faceImage = juce::ImageCache::getFromMemory (BinaryData::meter_face_white_hires_png,
-                                                  BinaryData::meter_face_white_hires_pngSize);
+    faceImage = juce::ImageCache::getFromMemory (BinaryData::meter_face_gold_png,
+                                                  BinaryData::meter_face_gold_pngSize);
 }
 
 void VUMeterFace::setLevel (float dB)

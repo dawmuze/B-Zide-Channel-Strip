@@ -61,6 +61,18 @@ public:
     static juce::String getGateParamId(const juce::String& param) { return "gate_" + param; }
     static juce::String getOutParamId(const juce::String& param) { return "out_" + param; }
 
+    // Section processing order (for drag-to-reorder)
+    // Values: 0=PRE, 1=EQ, 2=DS2, 3=COMP, 4=GATE
+    std::atomic<int> sectionOrder_[5] = { 0, 1, 2, 3, 4 };
+    void setSectionOrder(const std::array<int, 5>& order);
+
+    // Individual DSP processing methods
+    void processPre(juce::AudioBuffer<float>& buffer);
+    void processEQ(juce::AudioBuffer<float>& buffer);
+    void processDS2(juce::AudioBuffer<float>& buffer);
+    void processComp(juce::AudioBuffer<float>& buffer);
+    void processGate(juce::AudioBuffer<float>& buffer);
+
 private:
     juce::AudioProcessorValueTreeState apvts;
     LicenseValidator licenseValidator_;

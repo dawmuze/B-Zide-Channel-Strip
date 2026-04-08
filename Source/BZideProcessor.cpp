@@ -28,6 +28,12 @@ juce::AudioProcessorValueTreeState::ParameterLayout BZideProcessor::createParame
         juce::NormalisableRange<float>(0.0f, 100.0f, 0.1f), 0.0f));
     layout.add(std::make_unique<juce::AudioParameterFloat>(juce::ParameterID("pre_tone", 1), "PRE Tone",
         juce::NormalisableRange<float>(-100.0f, 100.0f, 0.1f), 0.0f));
+    layout.add(std::make_unique<juce::AudioParameterFloat>(juce::ParameterID("pre_input", 1), "PRE Input Gain",
+        juce::NormalisableRange<float>(-24.0f, 24.0f, 0.1f), 0.0f));
+    layout.add(std::make_unique<juce::AudioParameterFloat>(juce::ParameterID("pre_mix", 1), "PRE Mix",
+        juce::NormalisableRange<float>(0.0f, 100.0f, 0.1f), 100.0f));
+    layout.add(std::make_unique<juce::AudioParameterFloat>(juce::ParameterID("pre_output", 1), "PRE Output",
+        juce::NormalisableRange<float>(-24.0f, 24.0f, 0.1f), 0.0f));
 
     // ── EQ Section ──
     layout.add(std::make_unique<juce::AudioParameterBool>(juce::ParameterID("eq_bypass", 1), "EQ Bypass", false));
@@ -156,74 +162,19 @@ void BZideProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiBu
         inputLevelR.store(juce::Decibels::gainToDecibels(rmsR, -100.0f));
     }
 
-    // ── PRE (Saturation) ──
+    // Process DSP sections in user-defined order
+    for (int i = 0; i < 5; ++i)
     {
-        bool bypassed = *apvts.getRawParameterValue("pre_bypass") > 0.5f;
-        saturation_.setBypass(bypassed);
-        saturation_.setDrive(*apvts.getRawParameterValue("pre_drive"));
-        saturation_.setTone(*apvts.getRawParameterValue("pre_tone"));
-        int preType = static_cast<int>(*apvts.getRawParameterValue("pre_type"));
-        saturation_.setMode(static_cast<BZideSaturation::Mode>(preType));
-        saturation_.process(buffer);
-    }
-
-    // ── EQ ──
-    bool eqBypassed = *apvts.getRawParameterValue("eq_bypass") > 0.5f;
-    if (!eqBypassed)
-    {
-        updateEQ();
-        auto blockL = juce::dsp::AudioBlock<float>(buffer).getSingleChannelBlock(0);
-        auto blockR = buffer.getNumChannels() > 1
-            ? juce::dsp::AudioBlock<float>(buffer).getSingleChannelBlock(1)
-            : blockL;
-        auto ctxL = juce::dsp::ProcessContextReplacing<float>(blockL);
-        auto ctxR = juce::dsp::ProcessContextReplacing<float>(blockR);
-        leftEQ_.process(ctxL);
-        if (buffer.getNumChannels() > 1)
-            rightEQ_.process(ctxR);
-    }
-
-    // ── DS² (De-Esser) ──
-    bool dsBypassed = *apvts.getRawParameterValue("ds_bypass") > 0.5f;
-    if (!dsBypassed)
-    {
-        deEsser_.setBand(0,
-            *apvts.getRawParameterValue("ds_freq1"),
-            *apvts.getRawParameterValue("ds_thresh1"), -12.0f);
-        deEsser_.setBand(1,
-            *apvts.getRawParameterValue("ds_freq2"),
-            *apvts.getRawParameterValue("ds_thresh2"), -12.0f);
-        deEsser_.process(buffer);
-    }
-
-    // ── COMP ──
-    {
-        bool bypassed = *apvts.getRawParameterValue("comp_bypass") > 0.5f;
-        compressor_.setBypass(bypassed);
-        compressor_.setThreshold(*apvts.getRawParameterValue("comp_threshold"));
-        compressor_.setRatio(*apvts.getRawParameterValue("comp_ratio"));
-        compressor_.setAttack(*apvts.getRawParameterValue("comp_attack"));
-        compressor_.setRelease(*apvts.getRawParameterValue("comp_release"));
-        compressor_.setMakeupGain(*apvts.getRawParameterValue("comp_makeup"));
-        compressor_.setMix(*apvts.getRawParameterValue("comp_mix"));
-        int compType = static_cast<int>(*apvts.getRawParameterValue("comp_type"));
-        compressor_.setModel(static_cast<BZideCompressor::Model>(compType));
-        compressor_.process(buffer);
-        gainReduction.store(compressor_.getGainReduction());
-    }
-
-    // ── GATE ──
-    {
-        bool bypassed = *apvts.getRawParameterValue("gate_bypass") > 0.5f;
-        gate_.setBypass(bypassed);
-        gate_.setThreshold(*apvts.getRawParameterValue("gate_threshold"));
-        gate_.setAttenuation(*apvts.getRawParameterValue("gate_atten"));
-        gate_.setFloor(*apvts.getRawParameterValue("gate_floor"));
-        gate_.setAttack(*apvts.getRawParameterValue("gate_attack"));
-        gate_.setRelease(*apvts.getRawParameterValue("gate_release"));
-        int gateType = static_cast<int>(*apvts.getRawParameterValue("gate_type"));
-        gate_.setMode(static_cast<BZideGate::Mode>(gateType));
-        gate_.process(buffer);
+        int sectionIdx = sectionOrder_[i].load();
+        switch (sectionIdx)
+        {
+            case 0: processPre(buffer); break;
+            case 1: processEQ(buffer); break;
+            case 2: processDS2(buffer); break;
+            case 3: processComp(buffer); break;
+            case 4: processGate(buffer); break;
+            default: break;
+        }
     }
 
     // ── LIMITER ──
@@ -314,10 +265,135 @@ void BZideProcessor::updateEQ()
     *rightEQ_.get<4>().coefficients = *juce::dsp::IIR::Coefficients<float>::makeLowPass(sr, lpf);
 }
 
+void BZideProcessor::setSectionOrder(const std::array<int, 5>& order)
+{
+    for (int i = 0; i < 5; ++i)
+        sectionOrder_[i].store(order[(size_t)i]);
+}
+
+void BZideProcessor::processPre(juce::AudioBuffer<float>& buffer)
+{
+    bool bypassed = *apvts.getRawParameterValue("pre_bypass") > 0.5f;
+    if (bypassed) return;
+
+    // Input gain — drives the saturation harder or softer
+    float inputDb = *apvts.getRawParameterValue("pre_input");
+    float inputGain = juce::Decibels::decibelsToGain(inputDb);
+
+    // Mix (dry/wet)
+    float mixPct = *apvts.getRawParameterValue("pre_mix") / 100.0f;
+
+    // Output compensation
+    float outputDb = *apvts.getRawParameterValue("pre_output");
+    float outputGain = juce::Decibels::decibelsToGain(outputDb);
+
+    // Save dry signal for mix
+    juce::AudioBuffer<float> dryBuffer;
+    if (mixPct < 0.99f)
+    {
+        dryBuffer.makeCopyOf(buffer);
+    }
+
+    // Apply input gain
+    buffer.applyGain(inputGain);
+
+    // Process saturation
+    saturation_.setBypass(false);
+    saturation_.setDrive(*apvts.getRawParameterValue("pre_drive"));
+    saturation_.setTone(*apvts.getRawParameterValue("pre_tone"));
+    int preType = static_cast<int>(*apvts.getRawParameterValue("pre_type"));
+    saturation_.setMode(static_cast<BZideSaturation::Mode>(preType));
+    saturation_.process(buffer);
+
+    // Mix dry/wet
+    if (mixPct < 0.99f)
+    {
+        for (int ch = 0; ch < buffer.getNumChannels(); ++ch)
+        {
+            auto* wet = buffer.getWritePointer(ch);
+            auto* dry = dryBuffer.getReadPointer(ch);
+            for (int i = 0; i < buffer.getNumSamples(); ++i)
+                wet[i] = dry[i] * (1.0f - mixPct) + wet[i] * mixPct;
+        }
+    }
+
+    // Apply output gain
+    buffer.applyGain(outputGain);
+}
+
+void BZideProcessor::processEQ(juce::AudioBuffer<float>& buffer)
+{
+    bool eqBypassed = *apvts.getRawParameterValue("eq_bypass") > 0.5f;
+    if (!eqBypassed)
+    {
+        updateEQ();
+        auto blockL = juce::dsp::AudioBlock<float>(buffer).getSingleChannelBlock(0);
+        auto blockR = buffer.getNumChannels() > 1
+            ? juce::dsp::AudioBlock<float>(buffer).getSingleChannelBlock(1)
+            : blockL;
+        auto ctxL = juce::dsp::ProcessContextReplacing<float>(blockL);
+        auto ctxR = juce::dsp::ProcessContextReplacing<float>(blockR);
+        leftEQ_.process(ctxL);
+        if (buffer.getNumChannels() > 1)
+            rightEQ_.process(ctxR);
+    }
+}
+
+void BZideProcessor::processDS2(juce::AudioBuffer<float>& buffer)
+{
+    bool dsBypassed = *apvts.getRawParameterValue("ds_bypass") > 0.5f;
+    if (!dsBypassed)
+    {
+        deEsser_.setBand(0,
+            *apvts.getRawParameterValue("ds_freq1"),
+            *apvts.getRawParameterValue("ds_thresh1"), -12.0f);
+        deEsser_.setBand(1,
+            *apvts.getRawParameterValue("ds_freq2"),
+            *apvts.getRawParameterValue("ds_thresh2"), -12.0f);
+        deEsser_.process(buffer);
+    }
+}
+
+void BZideProcessor::processComp(juce::AudioBuffer<float>& buffer)
+{
+    bool bypassed = *apvts.getRawParameterValue("comp_bypass") > 0.5f;
+    compressor_.setBypass(bypassed);
+    compressor_.setThreshold(*apvts.getRawParameterValue("comp_threshold"));
+    compressor_.setRatio(*apvts.getRawParameterValue("comp_ratio"));
+    compressor_.setAttack(*apvts.getRawParameterValue("comp_attack"));
+    compressor_.setRelease(*apvts.getRawParameterValue("comp_release"));
+    compressor_.setMakeupGain(*apvts.getRawParameterValue("comp_makeup"));
+    compressor_.setMix(*apvts.getRawParameterValue("comp_mix"));
+    int compType = static_cast<int>(*apvts.getRawParameterValue("comp_type"));
+    compressor_.setModel(static_cast<BZideCompressor::Model>(compType));
+    compressor_.process(buffer);
+    gainReduction.store(compressor_.getGainReduction());
+}
+
+void BZideProcessor::processGate(juce::AudioBuffer<float>& buffer)
+{
+    bool bypassed = *apvts.getRawParameterValue("gate_bypass") > 0.5f;
+    gate_.setBypass(bypassed);
+    gate_.setThreshold(*apvts.getRawParameterValue("gate_threshold"));
+    gate_.setAttenuation(*apvts.getRawParameterValue("gate_atten"));
+    gate_.setFloor(*apvts.getRawParameterValue("gate_floor"));
+    gate_.setAttack(*apvts.getRawParameterValue("gate_attack"));
+    gate_.setRelease(*apvts.getRawParameterValue("gate_release"));
+    int gateType = static_cast<int>(*apvts.getRawParameterValue("gate_type"));
+    gate_.setMode(static_cast<BZideGate::Mode>(gateType));
+    gate_.process(buffer);
+}
+
 void BZideProcessor::getStateInformation(juce::MemoryBlock& destData)
 {
     auto state = apvts.copyState();
     std::unique_ptr<juce::XmlElement> xml(state.createXml());
+
+    // Save section order
+    auto* orderXml = xml->createNewChildElement("SectionOrder");
+    for (int i = 0; i < 5; ++i)
+        orderXml->setAttribute("s" + juce::String(i), sectionOrder_[i].load());
+
     copyXmlToBinary(*xml, destData);
 }
 
@@ -325,7 +401,18 @@ void BZideProcessor::setStateInformation(const void* data, int sizeInBytes)
 {
     std::unique_ptr<juce::XmlElement> xml(getXmlFromBinary(data, sizeInBytes));
     if (xml && xml->hasTagName(apvts.state.getType()))
+    {
+        // Restore section order
+        if (auto* orderXml = xml->getChildByName("SectionOrder"))
+        {
+            for (int i = 0; i < 5; ++i)
+                sectionOrder_[i].store(orderXml->getIntAttribute("s" + juce::String(i), i));
+        }
+
+        // Remove the SectionOrder child before restoring APVTS state
+        xml->deleteAllChildElementsWithTagName("SectionOrder");
         apvts.replaceState(juce::ValueTree::fromXml(*xml));
+    }
 }
 
 juce::AudioProcessorEditor* BZideProcessor::createEditor()
