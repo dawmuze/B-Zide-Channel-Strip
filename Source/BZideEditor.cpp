@@ -10,7 +10,7 @@ BZideEditor::BZideEditor(BZideProcessor& p)
 
     // Create all section components
     preSection = std::make_unique<PreSection>(apvts);
-    eqSection = std::make_unique<EQSection>(apvts);
+    eqSection = std::make_unique<EQSection>(apvts, &processor);
     ds2Section = std::make_unique<DS2Section>(apvts);
     compSection = std::make_unique<CompSection>(apvts);
     gateSection = std::make_unique<GateSection>(apvts);

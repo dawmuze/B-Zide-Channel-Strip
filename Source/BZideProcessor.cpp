@@ -212,6 +212,10 @@ void BZideProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiBu
         }
     }
 
+    // Push samples into FFT FIFO for spectrum analyzer
+    for (int i = 0; i < buffer.getNumSamples(); ++i)
+        pushNextSampleIntoFifo(buffer.getSample(0, i));
+
     // Output metering
     {
         float rmsL = buffer.getRMSLevel(0, 0, buffer.getNumSamples());
@@ -382,6 +386,20 @@ void BZideProcessor::processGate(juce::AudioBuffer<float>& buffer)
     int gateType = static_cast<int>(*apvts.getRawParameterValue("gate_type"));
     gate_.setMode(static_cast<BZideGate::Mode>(gateType));
     gate_.process(buffer);
+}
+
+void BZideProcessor::pushNextSampleIntoFifo(float sample)
+{
+    if (fifoIndex == fftSize)
+    {
+        if (!nextFFTBlockReady)
+        {
+            std::copy(fifo, fifo + fftSize, fftData);
+            nextFFTBlockReady = true;
+        }
+        fifoIndex = 0;
+    }
+    fifo[fifoIndex++] = sample;
 }
 
 void BZideProcessor::getStateInformation(juce::MemoryBlock& destData)

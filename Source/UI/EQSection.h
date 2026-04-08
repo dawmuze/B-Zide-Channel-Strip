@@ -1,11 +1,13 @@
 #pragma once
 #include "ChannelSection.h"
+#include "AnalyzerWindow.h"
 
 class EQSection : public ChannelSection
 {
 public:
-    EQSection(juce::AudioProcessorValueTreeState& apvts)
-        : ChannelSection(SectionId::EQ, "EQUALIZER", 140, true)
+    EQSection(juce::AudioProcessorValueTreeState& apvts, BZideProcessor* proc = nullptr)
+        : ChannelSection(SectionId::EQ, "EQUALIZER", 140, true),
+          processorRef(proc)
     {
         eqBypassAtt = std::make_unique<BA>(apvts, "eq_bypass", bypassBtn);
 
@@ -55,7 +57,22 @@ public:
             addAndMakeVisible(b);
         }
         lowCurve2.setToggleState(true, juce::dontSendNotification);
+
+        // Analyzer button
+        analyzerBtn.setButtonText("ANALYZER");
+        analyzerBtn.onClick = [this]() {
+            if (processorRef != nullptr)
+            {
+                if (analyzerWindow == nullptr || !analyzerWindow->isVisible())
+                    analyzerWindow = std::make_unique<AnalyzerWindow>(*processorRef);
+                else
+                    analyzerWindow->setVisible(true);
+            }
+        };
+        addAndMakeVisible(analyzerBtn);
     }
+
+    void setProcessor(BZideProcessor* proc) { processorRef = proc; }
 
 protected:
     void paintSectionContent(juce::Graphics& g) override
@@ -326,6 +343,11 @@ protected:
         int filterStartX = (sectionWidth - filterTotalW) / 2;
         eqHpf.setBounds(filterStartX, y, fw, filterKnob + 22);
         eqLpf.setBounds(filterStartX + fw + filterGap, y, fw, filterKnob + 22);
+        y += filterKnob + 22 + 8;
+
+        // Analyzer button
+        int btnW = sectionWidth - 16;
+        analyzerBtn.setBounds((sectionWidth - btnW) / 2, y, btnW, 20);
     }
 
 private:
@@ -354,4 +376,9 @@ private:
     int midHeaderY = 0, midDivY = 0;
     int lowHeaderY = 0, lowDivY = 0;
     int filtersHeaderY = 0;
+
+    // Analyzer
+    BZideProcessor* processorRef = nullptr;
+    juce::TextButton analyzerBtn;
+    std::unique_ptr<AnalyzerWindow> analyzerWindow;
 };

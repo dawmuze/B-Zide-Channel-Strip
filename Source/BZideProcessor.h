@@ -44,6 +44,15 @@ public:
     std::atomic<float> outputLevelL { -100.0f }, outputLevelR { -100.0f };
     std::atomic<float> gainReduction { 0.0f };
 
+    // FFT data for spectrum analyzer
+    static constexpr int fftOrder = 11;
+    static constexpr int fftSize = 1 << fftOrder; // 2048
+    float fftData[2 * fftSize] = {};
+    bool nextFFTBlockReady = false;
+    int fifoIndex = 0;
+    float fifo[fftSize] = {};
+    void pushNextSampleIntoFifo(float sample);
+
     // License
     bool isLicensed() const { return licenseValidator_.isLicensed(); }
     bool isTrial() const { return licenseValidator_.isTrial(); }
