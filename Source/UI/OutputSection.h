@@ -152,9 +152,7 @@ public:
         else
             outputMeterLevel += (outTarget - outputMeterLevel) * 0.05f;
 
-        // Update input faders to show input level (display meters)
-        inFaderL.setValue(processor.inputLevelL.load(), juce::dontSendNotification);
-        inFaderR.setValue(processor.inputLevelR.load(), juce::dontSendNotification);
+        // Input level is shown via LED meter strips only — faders stay where user sets them
 
         // Mirror output fader R from L (only when linked)
         if (linkBtn.getToggleState())
