@@ -283,7 +283,7 @@ void BZideProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiBu
         }
     }
 
-    // License check — with 50ms crossfade to avoid pop on status transition
+    // License check — use applyGainRamp instead of per-sample loop
     auto licStatus = getLicenseStatus();
     bool licenseLocked = !isLicensed() && !isTrial() &&
         (licStatus == LicenseValidator::Status::Expired ||
@@ -293,19 +293,11 @@ void BZideProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiBu
     float licTarget = licenseLocked ? 0.0f : 1.0f;
     if (std::abs(licenseFadeGain_ - licTarget) > 0.001f || licenseLocked)
     {
-        float fadeStep = 1.0f / (float)(currentSampleRate_ * 0.050); // 50ms fade
-        for (int i = 0; i < buffer.getNumSamples(); ++i)
-        {
-            if (licenseFadeGain_ > licTarget)
-                licenseFadeGain_ = juce::jmax(licenseFadeGain_ - fadeStep, 0.0f);
-            else if (licenseFadeGain_ < licTarget)
-                licenseFadeGain_ = juce::jmin(licenseFadeGain_ + fadeStep, 1.0f);
-
-            for (int ch = 0; ch < buffer.getNumChannels(); ++ch)
-                buffer.setSample(ch, i, buffer.getSample(ch, i) * licenseFadeGain_);
-        }
-        if (licenseFadeGain_ <= 0.0f)
-            return; // fully faded out, skip remaining processing
+        float newLicGain = licTarget; // ramp to target over this block
+        buffer.applyGainRamp(0, buffer.getNumSamples(), licenseFadeGain_, newLicGain);
+        licenseFadeGain_ = newLicGain;
+        if (licenseFadeGain_ <= 0.001f)
+            return;
     }
 
     // ── INPUT FADER (apply input gain before anything) ──
@@ -410,50 +402,43 @@ void BZideProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiBu
         }
     }
 
-    // ── BYPASS CROSSFADE (~10ms ramp) ──
+    // ── BYPASS CROSSFADE (block-level ramp, no per-sample loop) ──
     if (needsCrossfade)
     {
-        float rampStep = 1.0f / (float)(currentSampleRate_ * 0.010); // 10ms
-        for (int i = 0; i < buffer.getNumSamples(); ++i)
+        float prevBG = bypassGain_;
+        bypassGain_ = bypassTarget; // snap to target over this block
+        // Ramp wet signal
+        buffer.applyGainRamp(0, buffer.getNumSamples(), prevBG, bypassGain_);
+        // Ramp dry signal inversely and add
+        for (int ch = 0; ch < juce::jmin(buffer.getNumChannels(), preDryBuffer_.getNumChannels()); ++ch)
         {
-            // Ramp bypassGain_ toward target
-            if (bypassGain_ < bypassTarget)
-                bypassGain_ = juce::jmin(bypassGain_ + rampStep, bypassTarget);
-            else if (bypassGain_ > bypassTarget)
-                bypassGain_ = juce::jmax(bypassGain_ - rampStep, bypassTarget);
-
-            float wet = bypassGain_;
-            float dry = 1.0f - wet;
-
-            for (int ch = 0; ch < buffer.getNumChannels(); ++ch)
+            auto* wet = buffer.getWritePointer(ch);
+            auto* dry = preDryBuffer_.getReadPointer(ch);
+            float dryStart = 1.0f - prevBG;
+            float dryEnd = 1.0f - bypassGain_;
+            float dryStep = (dryEnd - dryStart) / (float)buffer.getNumSamples();
+            float dryGain = dryStart;
+            for (int i = 0; i < buffer.getNumSamples(); ++i)
             {
-                float dryS = preDryBuffer_.getSample(ch, i);
-                float wetS = buffer.getSample(ch, i);
-                buffer.setSample(ch, i, dryS * dry + wetS * wet);
+                wet[i] += dry[i] * dryGain;
+                dryGain += dryStep;
             }
         }
     }
 
-    // Output metering + sanitize + FFT push (single combined pass)
+    // Output metering (vectorized RMS — no per-sample loop)
     {
         float rmsL = buffer.getRMSLevel(0, 0, buffer.getNumSamples());
         float rmsR = buffer.getNumChannels() > 1 ? buffer.getRMSLevel(1, 0, buffer.getNumSamples()) : rmsL;
         outputLevelL.store(juce::Decibels::gainToDecibels(rmsL, -100.0f));
         outputLevelR.store(juce::Decibels::gainToDecibels(rmsR, -100.0f));
+    }
 
-        // Sanitize + FFT push in one loop (saves iterating buffer twice)
+    // FFT push (only channel 0, for spectrum analyzer)
+    {
+        auto* data = buffer.getReadPointer(0);
         for (int i = 0; i < buffer.getNumSamples(); ++i)
-        {
-            float s = buffer.getSample(0, i);
-            if (!std::isfinite(s)) { s = 0.0f; buffer.setSample(0, i, 0.0f); }
-            pushNextSampleIntoFifo(s);
-
-            if (buffer.getNumChannels() > 1)
-            {
-                float r = buffer.getSample(1, i);
-                if (!std::isfinite(r)) buffer.setSample(1, i, 0.0f);
-            }
-        }
+            pushNextSampleIntoFifo(data[i]);
     }
 }
 
