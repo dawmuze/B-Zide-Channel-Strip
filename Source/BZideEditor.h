@@ -28,8 +28,12 @@ public:
 
     void drawRotarySlider(juce::Graphics& g, int x, int y, int w, int h,
                           float sliderPos, float startAngle, float endAngle,
-                          juce::Slider&) override
+                          juce::Slider& slider) override
     {
+        // Get per-knob LED color (defaults to red if not set)
+        juce::Colour ledColor = slider.findColour(juce::Slider::rotarySliderFillColourId);
+        if (ledColor == juce::Colour(0xFF44BB44)) // default green from constructor
+            ledColor = juce::Colour(0xFFDD2200); // use red as default LED color
         float radius = (float)juce::jmin(w, h) * 0.32f;
         float cx = (float)x + (float)w * 0.5f;
         float cy = (float)y + (float)h * 0.5f;
@@ -136,12 +140,17 @@ public:
         g.drawEllipse(cx - midInnerR - 0.5f, cy - midInnerR - 0.5f,
                       (midInnerR + 0.5f) * 2.0f, (midInnerR + 0.5f) * 2.0f, 1.0f);
 
-        // ── 6. Inner cap — dark center with subtle dome ──
+        // ── 6. Inner cap — tinted with knob color only for EQ bands ──
         float capR = midInnerR - 1.0f;
         {
+            bool isColoredKnob = (ledColor != juce::Colour(0xFFDD2200)); // not the default red
+            juce::Colour capBase = isColoredKnob
+                ? ledColor.darker(2.5f)           // tinted dark for EQ knobs
+                : juce::Colour(0xFF0E0E12);        // plain dark for everything else
+
             juce::ColourGradient capGrad(
-                juce::Colour(0xFF1A1A20), cx - capR * 0.2f, cy - capR * 0.3f,
-                juce::Colour(0xFF08080C), cx, cy + capR, true);
+                capBase.brighter(0.15f), cx - capR * 0.2f, cy - capR * 0.3f,
+                capBase, cx, cy + capR, true);
             g.setGradientFill(capGrad);
             g.fillEllipse(cx - capR, cy - capR, capR * 2.0f, capR * 2.0f);
 
@@ -185,9 +194,9 @@ public:
 
             if (lit)
             {
-                g.setColour(juce::Colour(0xFFDD2200).withAlpha(0.2f));
+                g.setColour(ledColor.withAlpha(0.2f));
                 g.fillEllipse(dx - dotSize * 2.0f, dy - dotSize * 2.0f, dotSize * 4.0f, dotSize * 4.0f);
-                g.setColour(juce::Colour(0xFFDD2200));
+                g.setColour(ledColor);
                 g.fillEllipse(dx - dotSize, dy - dotSize, dotSize * 2.0f, dotSize * 2.0f);
             }
             else
@@ -217,10 +226,13 @@ public:
 
     void drawLinearSlider(juce::Graphics& g, int x, int y, int w, int h,
                           float sliderPos, float, float,
-                          juce::Slider::SliderStyle style, juce::Slider&) override
+                          juce::Slider::SliderStyle style, juce::Slider& slider) override
     {
         if (style == juce::Slider::LinearVertical)
         {
+            // Skip drawing if thumb is transparent (L2 limiter faders — painted by custom code)
+            if (slider.findColour(juce::Slider::thumbColourId).getAlpha() == 0)
+                return;
             // Track — dark groove, full height
             float trackX = (float)x + (float)w * 0.5f - 3.0f;
             g.setColour(juce::Colour(0xFF0A0A0E));
@@ -247,7 +259,7 @@ public:
 
             // ── Fader thumb — clean chrome cap ──
             float thumbW = (float)w * 0.85f;
-            float thumbH = 48.0f;
+            float thumbH = (w < 30) ? 20.0f : 48.0f; // compact for narrow faders (L2 Release)
             float thumbX = (float)x + ((float)w - thumbW) * 0.5f;
             float thumbY = sliderPos - thumbH * 0.5f;
             float cr = 2.0f;
@@ -445,8 +457,8 @@ private:
     std::unique_ptr<InsertSection> insertSection;
     std::unique_ptr<OutputSection> outputSection;
 
-    // Draggable order (indices into SectionId: PRE=0, EQ=1, DS2=2, COMP=3, GATE=4)
-    std::array<SectionId, 5> draggableOrder = { SectionId::PRE, SectionId::EQ, SectionId::DS2, SectionId::COMP, SectionId::GATE };
+    // Draggable order (indices into SectionId: PRE=0, EQ=1, DS2=2, COMP=3, GATE=4, INSERT=5)
+    std::array<SectionId, 6> draggableOrder = { SectionId::PRE, SectionId::EQ, SectionId::DS2, SectionId::COMP, SectionId::GATE, SectionId::INSERT };
 
     // Get section pointer by SectionId
     ChannelSection* getSectionById(SectionId id);

@@ -54,7 +54,7 @@ public:
 
         // Check if clicking on a node
         draggedNode = -1;
-        for (int i = 0; i < 3; ++i)
+        for (int i = 0; i < numNodes; ++i)
         {
             float nx = getNodeX(i, w);
             float ny = getNodeY(i, h);
@@ -81,17 +81,24 @@ public:
 
         switch (draggedNode)
         {
-            case 0: // HIGH
+            case 0: // HPF — only horizontal (frequency), stays on 0dB
             {
-                freq = juce::jlimit(2000.0f, 20000.0f, freq);
-                gain = juce::jlimit(-18.0f, 18.0f, gain);
-                if (auto* p = apvts.getParameter("eq_high_freq"))
+                freq = juce::jlimit(20.0f, 500.0f, freq);
+                if (auto* p = apvts.getParameter("eq_hpf"))
                     p->setValueNotifyingHost(p->getNormalisableRange().convertTo0to1(freq));
-                if (auto* p = apvts.getParameter("eq_high_gain"))
+                break;
+            }
+            case 1: // LOW
+            {
+                freq = juce::jlimit(30.0f, 500.0f, freq);
+                gain = juce::jlimit(-18.0f, 18.0f, gain);
+                if (auto* p = apvts.getParameter("eq_low_freq"))
+                    p->setValueNotifyingHost(p->getNormalisableRange().convertTo0to1(freq));
+                if (auto* p = apvts.getParameter("eq_low_gain"))
                     p->setValueNotifyingHost(p->getNormalisableRange().convertTo0to1(gain));
                 break;
             }
-            case 1: // MID
+            case 2: // MID
             {
                 freq = juce::jlimit(200.0f, 8000.0f, freq);
                 gain = juce::jlimit(-18.0f, 18.0f, gain);
@@ -101,14 +108,21 @@ public:
                     p->setValueNotifyingHost(p->getNormalisableRange().convertTo0to1(gain));
                 break;
             }
-            case 2: // LOW
+            case 3: // HIGH
             {
-                freq = juce::jlimit(30.0f, 500.0f, freq);
+                freq = juce::jlimit(2000.0f, 20000.0f, freq);
                 gain = juce::jlimit(-18.0f, 18.0f, gain);
-                if (auto* p = apvts.getParameter("eq_low_freq"))
+                if (auto* p = apvts.getParameter("eq_high_freq"))
                     p->setValueNotifyingHost(p->getNormalisableRange().convertTo0to1(freq));
-                if (auto* p = apvts.getParameter("eq_low_gain"))
+                if (auto* p = apvts.getParameter("eq_high_gain"))
                     p->setValueNotifyingHost(p->getNormalisableRange().convertTo0to1(gain));
+                break;
+            }
+            case 4: // LPF — only horizontal (frequency), stays on 0dB
+            {
+                freq = juce::jlimit(2000.0f, 20000.0f, freq);
+                if (auto* p = apvts.getParameter("eq_lpf"))
+                    p->setValueNotifyingHost(p->getNormalisableRange().convertTo0to1(freq));
                 break;
             }
         }
@@ -163,16 +177,20 @@ private:
         return minDb + (1.0f - y / height) * (maxDb - minDb);
     }
 
-    // Node positions
+    // 5 Nodes: 0=HPF, 1=LOW, 2=MID, 3=HIGH, 4=LPF
+    static constexpr int numNodes = 5;
+
     float getNodeX(int nodeIndex, float width) const
     {
         auto& apvts = processor.getAPVTS();
         float freq = 1000.0f;
         switch (nodeIndex)
         {
-            case 0: freq = *apvts.getRawParameterValue("eq_high_freq"); break;
-            case 1: freq = *apvts.getRawParameterValue("eq_mid_freq"); break;
-            case 2: freq = *apvts.getRawParameterValue("eq_low_freq"); break;
+            case 0: freq = *apvts.getRawParameterValue("eq_hpf"); break;
+            case 1: freq = *apvts.getRawParameterValue("eq_low_freq"); break;
+            case 2: freq = *apvts.getRawParameterValue("eq_mid_freq"); break;
+            case 3: freq = *apvts.getRawParameterValue("eq_high_freq"); break;
+            case 4: freq = *apvts.getRawParameterValue("eq_lpf"); break;
         }
         return freqToX(freq, width);
     }
@@ -183,9 +201,11 @@ private:
         float gain = 0.0f;
         switch (nodeIndex)
         {
-            case 0: gain = *apvts.getRawParameterValue("eq_high_gain"); break;
-            case 1: gain = *apvts.getRawParameterValue("eq_mid_gain"); break;
-            case 2: gain = *apvts.getRawParameterValue("eq_low_gain"); break;
+            case 0: return dbToY(0.0f, height);  // HPF sits on 0dB line
+            case 1: gain = *apvts.getRawParameterValue("eq_low_gain"); break;
+            case 2: gain = *apvts.getRawParameterValue("eq_mid_gain"); break;
+            case 3: gain = *apvts.getRawParameterValue("eq_high_gain"); break;
+            case 4: return dbToY(0.0f, height);  // LPF sits on 0dB line
         }
         return dbToY(gain, height);
     }
@@ -194,9 +214,11 @@ private:
     {
         switch (nodeIndex)
         {
-            case 0: return juce::Colour(0xFFf97316); // HIGH = orange
-            case 1: return juce::Colour(0xFFeab308); // MID = yellow
-            case 2: return juce::Colour(0xFF22c55e); // LOW = green
+            case 0: return juce::Colour(0xFFe74c3c); // HPF = red
+            case 1: return juce::Colour(0xFF22c55e); // LOW = green
+            case 2: return juce::Colour(0xFFeab308); // MID = yellow
+            case 3: return juce::Colour(0xFFf97316); // HIGH = orange
+            case 4: return juce::Colour(0xFF06b6d4); // LPF = cyan
             default: return juce::Colours::white;
         }
     }
@@ -205,9 +227,11 @@ private:
     {
         switch (nodeIndex)
         {
-            case 0: return "H";
-            case 1: return "M";
-            case 2: return "L";
+            case 0: return "HP";
+            case 1: return "L";
+            case 2: return "M";
+            case 3: return "H";
+            case 4: return "LP";
             default: return "";
         }
     }
@@ -317,9 +341,59 @@ private:
         }
     }
 
+    // Draw a single band's curve with colored fill
+    void drawBandCurve(juce::Graphics& g, float w, float h,
+                       const juce::dsp::IIR::Coefficients<float>& coeffs,
+                       double sampleRate, juce::Colour bandColor)
+    {
+        float zeroY = dbToY(0.0f, h);
+        juce::Path bandPath;
+        bool started = false;
+
+        for (int i = 0; i < (int)w; i += 2)
+        {
+            float freq = xToFreq((float)i, w);
+            if (freq < 20.0f || freq > 20000.0f) continue;
+
+            float mag = getMagnitudeForCoeffs(coeffs, freq, sampleRate);
+            float db = juce::Decibels::gainToDecibels(mag);
+            db = juce::jlimit(-24.0f, 18.0f, db);
+            float y = dbToY(db, h);
+
+            if (!started) { bandPath.startNewSubPath((float)i, y); started = true; }
+            else bandPath.lineTo((float)i, y);
+        }
+
+        if (!bandPath.isEmpty())
+        {
+            // Create filled version from curve to 0dB line
+            juce::Path filledPath = bandPath;
+            filledPath.lineTo(w, zeroY);
+            filledPath.lineTo(0, zeroY);
+            filledPath.closeSubPath();
+
+            g.setColour(bandColor.withAlpha(0.15f));
+            g.fillPath(filledPath);
+
+            g.setColour(bandColor.withAlpha(0.5f));
+            g.strokePath(bandPath, juce::PathStrokeType(1.0f));
+        }
+    }
+
     void drawEQCurve(juce::Graphics& g, float w, float h)
     {
         auto& apvts = processor.getAPVTS();
+
+        // If EQ is bypassed, just draw a flat 0dB line
+        bool bypassed = *apvts.getRawParameterValue("eq_bypass") > 0.5f;
+        if (bypassed)
+        {
+            float zeroY = dbToY(0.0f, h);
+            g.setColour(juce::Colour(0x40eab308));
+            g.drawHorizontalLine((int)zeroY, 0.0f, w);
+            return;
+        }
+
         double sampleRate = processor.getSampleRate();
         if (sampleRate <= 0) sampleRate = 44100.0;
 
@@ -333,7 +407,6 @@ private:
         float hiF = *apvts.getRawParameterValue("eq_high_freq");
         float hiG = *apvts.getRawParameterValue("eq_high_gain");
 
-        // Get filter coefficients
         auto hpfCoeffs = juce::dsp::IIR::Coefficients<float>::makeHighPass(sampleRate, hpf);
         auto lowCoeffs = juce::dsp::IIR::Coefficients<float>::makeLowShelf(sampleRate, lowF, 0.707f,
             juce::Decibels::decibelsToGain(lowG));
@@ -343,10 +416,11 @@ private:
             juce::Decibels::decibelsToGain(hiG));
         auto lpfCoeffs = juce::dsp::IIR::Coefficients<float>::makeLowPass(sampleRate, lpf);
 
+        // Draw total combined EQ curve only (clean like Pro-Q)
         juce::Path eqPath;
         bool started = false;
 
-        for (int i = 0; i < (int)w; ++i)
+        for (int i = 0; i < (int)w; i += 2)
         {
             float freq = xToFreq((float)i, w);
             if (freq < 20.0f || freq > 20000.0f) continue;
@@ -362,64 +436,44 @@ private:
             db = juce::jlimit(-24.0f, 18.0f, db);
             float y = dbToY(db, h);
 
-            if (!started)
-            {
-                eqPath.startNewSubPath((float)i, y);
-                started = true;
-            }
-            else
-            {
-                eqPath.lineTo((float)i, y);
-            }
+            if (!started) { eqPath.startNewSubPath((float)i, y); started = true; }
+            else eqPath.lineTo((float)i, y);
         }
 
         if (!eqPath.isEmpty())
         {
-            // Glow
-            g.setColour(juce::Colour(0x30f97316));
-            g.strokePath(eqPath, juce::PathStrokeType(4.0f));
+            float zeroY = dbToY(0.0f, h);
 
-            // Main line
-            g.setColour(juce::Colour(0xFFf97316));
-            g.strokePath(eqPath, juce::PathStrokeType(2.0f));
+            // Filled area between curve and 0dB line
+            juce::Path filledEQ = eqPath;
+            filledEQ.lineTo(w, zeroY);
+            filledEQ.lineTo(0, zeroY);
+            filledEQ.closeSubPath();
+            g.setColour(juce::Colour(0xFFeab308).withAlpha(0.08f));
+            g.fillPath(filledEQ);
+
+            // Glow
+            g.setColour(juce::Colour(0x20eab308));
+            g.strokePath(eqPath, juce::PathStrokeType(4.0f));
+            // Main line — yellow like Pro-Q
+            g.setColour(juce::Colour(0xFFeab308));
+            g.strokePath(eqPath, juce::PathStrokeType(1.5f));
         }
     }
 
     float getMagnitudeForCoeffs(const juce::dsp::IIR::Coefficients<float>& coeffs,
                                 float freq, double sampleRate) const
     {
-        auto* c = coeffs.getRawCoefficients();
-        // Biquad: H(z) = (b0 + b1*z^-1 + b2*z^-2) / (a0 + a1*z^-1 + a2*z^-2)
-        // where a0 is normalized to 1
-        float b0 = c[0], b1 = c[1], b2 = c[2];
-        float a0 = c[3], a1 = c[4], a2 = c[5];
-
-        // JUCE stores coefficients as [b0, b1, b2, a0, a1, a2]
-        // but IIR::Coefficients normalizes a0 = 1.0
-        // Actually JUCE stores [b0, b1, b2, a0, a1, a2] where a0 is already 1
-        float omega = (float)(2.0 * juce::MathConstants<double>::pi * freq / sampleRate);
-        float cosW = std::cos(omega);
-        float sinW = std::sin(omega);
-        float cos2W = std::cos(2.0f * omega);
-        float sin2W = std::sin(2.0f * omega);
-
-        // Numerator: b0 + b1*e^(-jw) + b2*e^(-2jw)
-        float numReal = b0 + b1 * cosW + b2 * cos2W;
-        float numImag = -(b1 * sinW + b2 * sin2W);
-
-        // Denominator: a0 + a1*e^(-jw) + a2*e^(-2jw)
-        float denReal = a0 + a1 * cosW + a2 * cos2W;
-        float denImag = -(a1 * sinW + a2 * sin2W);
-
-        float numMag = std::sqrt(numReal * numReal + numImag * numImag);
-        float denMag = std::sqrt(denReal * denReal + denImag * denImag);
-
-        return denMag > 0.0f ? numMag / denMag : 1.0f;
+        // Use JUCE's built-in method — correctly handles all coefficient formats
+        double freqD = (double)freq;
+        double magnitude = 1.0;
+        coeffs.getMagnitudeForFrequencyArray(&freqD, &magnitude, 1, sampleRate);
+        return (float)magnitude;
     }
 
     void drawNodes(juce::Graphics& g, float w, float h)
     {
-        for (int i = 0; i < 3; ++i)
+        for (int i = 0; i < numNodes; ++i)
         {
             float nx = getNodeX(i, w);
             float ny = getNodeY(i, h);
@@ -450,12 +504,14 @@ private:
             float freq = 0, gain = 0;
             switch (i)
             {
-                case 0: freq = *apvts.getRawParameterValue("eq_high_freq");
-                        gain = *apvts.getRawParameterValue("eq_high_gain"); break;
-                case 1: freq = *apvts.getRawParameterValue("eq_mid_freq");
-                        gain = *apvts.getRawParameterValue("eq_mid_gain"); break;
-                case 2: freq = *apvts.getRawParameterValue("eq_low_freq");
+                case 0: freq = *apvts.getRawParameterValue("eq_hpf"); gain = 0; break;
+                case 1: freq = *apvts.getRawParameterValue("eq_low_freq");
                         gain = *apvts.getRawParameterValue("eq_low_gain"); break;
+                case 2: freq = *apvts.getRawParameterValue("eq_mid_freq");
+                        gain = *apvts.getRawParameterValue("eq_mid_gain"); break;
+                case 3: freq = *apvts.getRawParameterValue("eq_high_freq");
+                        gain = *apvts.getRawParameterValue("eq_high_gain"); break;
+                case 4: freq = *apvts.getRawParameterValue("eq_lpf"); gain = 0; break;
             }
 
             juce::String tooltip;
@@ -463,7 +519,8 @@ private:
                 tooltip = juce::String(freq / 1000.0f, 1) + "kHz";
             else
                 tooltip = juce::String((int)freq) + "Hz";
-            tooltip += "  " + juce::String(gain, 1) + "dB";
+            if (i != 0 && i != 4) // HPF/LPF don't show gain
+                tooltip += "  " + juce::String(gain, 1) + "dB";
 
             g.setColour(juce::Colour(0xBBFFFFFF));
             g.setFont(juce::Font(juce::FontOptions(9.0f)));

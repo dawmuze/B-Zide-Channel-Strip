@@ -55,6 +55,10 @@ juce::AudioProcessorValueTreeState::ParameterLayout BZideProcessor::createParame
         juce::NormalisableRange<float>(2000.0f, 20000.0f, 1.0f, 0.3f), 8000.0f));
     layout.add(std::make_unique<juce::AudioParameterFloat>(juce::ParameterID("eq_high_gain", 1), "EQ High Gain",
         juce::NormalisableRange<float>(-18.0f, 18.0f, 0.1f), 0.0f));
+    layout.add(std::make_unique<juce::AudioParameterFloat>(juce::ParameterID("eq_low_q", 1), "EQ Low Q",
+        juce::NormalisableRange<float>(0.1f, 10.0f, 0.01f, 0.5f), 0.707f));
+    layout.add(std::make_unique<juce::AudioParameterFloat>(juce::ParameterID("eq_high_q", 1), "EQ High Q",
+        juce::NormalisableRange<float>(0.1f, 10.0f, 0.01f, 0.5f), 0.707f));
 
     // ── DS² (De-Esser) Section ──
     layout.add(std::make_unique<juce::AudioParameterBool>(juce::ParameterID("ds_bypass", 1), "DS Bypass", true));
@@ -66,6 +70,8 @@ juce::AudioProcessorValueTreeState::ParameterLayout BZideProcessor::createParame
         juce::NormalisableRange<float>(4000.0f, 20000.0f, 1.0f, 0.3f), 10000.0f));
     layout.add(std::make_unique<juce::AudioParameterFloat>(juce::ParameterID("ds_thresh2", 1), "DS Band2 Thresh",
         juce::NormalisableRange<float>(-60.0f, 0.0f, 0.1f), -20.0f));
+    layout.add(std::make_unique<juce::AudioParameterFloat>(juce::ParameterID("ds_output", 1), "DS Output",
+        juce::NormalisableRange<float>(-12.0f, 12.0f, 0.1f), 0.0f));
 
     // ── COMP Section ──
     layout.add(std::make_unique<juce::AudioParameterBool>(juce::ParameterID("comp_bypass", 1), "COMP Bypass", true));
@@ -106,7 +112,13 @@ juce::AudioProcessorValueTreeState::ParameterLayout BZideProcessor::createParame
         juce::NormalisableRange<float>(-60.0f, 12.0f, 0.1f), 0.0f));
     layout.add(std::make_unique<juce::AudioParameterBool>(juce::ParameterID("out_limiter", 1), "Limiter On", false));
     layout.add(std::make_unique<juce::AudioParameterFloat>(juce::ParameterID("out_limiter_thresh", 1), "Limiter Thresh",
-        juce::NormalisableRange<float>(-12.0f, 0.0f, 0.1f), -0.3f));
+        juce::NormalisableRange<float>(-30.0f, 0.0f, 0.1f), -10.0f));
+    layout.add(std::make_unique<juce::AudioParameterFloat>(juce::ParameterID("out_limiter_ceiling", 1), "Limiter Ceiling",
+        juce::NormalisableRange<float>(-12.0f, 0.0f, 0.1f), -0.2f));
+    layout.add(std::make_unique<juce::AudioParameterFloat>(juce::ParameterID("out_limiter_release", 1), "Limiter Release",
+        juce::NormalisableRange<float>(0.01f, 100.0f, 0.01f, 0.3f), 50.0f));
+    layout.add(std::make_unique<juce::AudioParameterBool>(juce::ParameterID("out_phase_l", 1), "Phase Invert L", false));
+    layout.add(std::make_unique<juce::AudioParameterBool>(juce::ParameterID("out_phase_r", 1), "Phase Invert R", false));
     layout.add(std::make_unique<juce::AudioParameterChoice>(juce::ParameterID("out_mode", 1), "Output Mode",
         juce::StringArray{ "Stereo", "Mono", "M/S" }, 0));
 
@@ -162,8 +174,8 @@ void BZideProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiBu
         inputLevelR.store(juce::Decibels::gainToDecibels(rmsR, -100.0f));
     }
 
-    // Process DSP sections in user-defined order
-    for (int i = 0; i < 5; ++i)
+    // Process DSP sections in user-defined order (6 draggable sections)
+    for (int i = 0; i < 6; ++i)
     {
         int sectionIdx = sectionOrder_[i].load();
         switch (sectionIdx)
@@ -173,8 +185,19 @@ void BZideProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiBu
             case 2: processDS2(buffer); break;
             case 3: processComp(buffer); break;
             case 4: processGate(buffer); break;
+            case 5: processInserts(buffer); break;
             default: break;
         }
+    }
+
+    // ── PHASE INVERT ──
+    {
+        bool phaseL = *apvts.getRawParameterValue("out_phase_l") > 0.5f;
+        bool phaseR = *apvts.getRawParameterValue("out_phase_r") > 0.5f;
+        if (phaseL && buffer.getNumChannels() > 0)
+            juce::FloatVectorOperations::negate(buffer.getWritePointer(0), buffer.getWritePointer(0), buffer.getNumSamples());
+        if (phaseR && buffer.getNumChannels() > 1)
+            juce::FloatVectorOperations::negate(buffer.getWritePointer(1), buffer.getWritePointer(1), buffer.getNumSamples());
     }
 
     // ── LIMITER ──
@@ -182,7 +205,21 @@ void BZideProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiBu
         bool on = *apvts.getRawParameterValue("out_limiter") > 0.5f;
         limiter_.setBypass(!on);
         limiter_.setThreshold(*apvts.getRawParameterValue("out_limiter_thresh"));
+        limiter_.setRelease(*apvts.getRawParameterValue("out_limiter_release"));
         limiter_.process(buffer);
+
+        // Apply ceiling (output ceiling caps the final level)
+        float ceiling = juce::Decibels::decibelsToGain((float)*apvts.getRawParameterValue("out_limiter_ceiling"));
+        if (on)
+        {
+            for (int ch = 0; ch < buffer.getNumChannels(); ++ch)
+                for (int i = 0; i < buffer.getNumSamples(); ++i)
+                {
+                    float s = buffer.getSample(ch, i);
+                    if (std::abs(s) > ceiling)
+                        buffer.setSample(ch, i, s > 0 ? ceiling : -ceiling);
+                }
+        }
     }
 
     // ── OUTPUT FADER ──
@@ -244,6 +281,8 @@ void BZideProcessor::updateEQ()
     float midQ = *apvts.getRawParameterValue("eq_mid_q");
     float hiF = *apvts.getRawParameterValue("eq_high_freq");
     float hiG = *apvts.getRawParameterValue("eq_high_gain");
+    float lowQ = *apvts.getRawParameterValue("eq_low_q");
+    float hiQ = *apvts.getRawParameterValue("eq_high_q");
 
     auto sr = currentSampleRate_;
     if (sr <= 0) return;
@@ -253,25 +292,25 @@ void BZideProcessor::updateEQ()
     *rightEQ_.get<0>().coefficients = *juce::dsp::IIR::Coefficients<float>::makeHighPass(sr, hpf);
 
     // Low shelf
-    *leftEQ_.get<1>().coefficients = *juce::dsp::IIR::Coefficients<float>::makeLowShelf(sr, lowF, 0.707f, juce::Decibels::decibelsToGain(lowG));
-    *rightEQ_.get<1>().coefficients = *juce::dsp::IIR::Coefficients<float>::makeLowShelf(sr, lowF, 0.707f, juce::Decibels::decibelsToGain(lowG));
+    *leftEQ_.get<1>().coefficients = *juce::dsp::IIR::Coefficients<float>::makeLowShelf(sr, lowF, lowQ, juce::Decibels::decibelsToGain(lowG));
+    *rightEQ_.get<1>().coefficients = *juce::dsp::IIR::Coefficients<float>::makeLowShelf(sr, lowF, lowQ, juce::Decibels::decibelsToGain(lowG));
 
     // Mid peak
     *leftEQ_.get<2>().coefficients = *juce::dsp::IIR::Coefficients<float>::makePeakFilter(sr, midF, midQ, juce::Decibels::decibelsToGain(midG));
     *rightEQ_.get<2>().coefficients = *juce::dsp::IIR::Coefficients<float>::makePeakFilter(sr, midF, midQ, juce::Decibels::decibelsToGain(midG));
 
     // High shelf
-    *leftEQ_.get<3>().coefficients = *juce::dsp::IIR::Coefficients<float>::makeHighShelf(sr, hiF, 0.707f, juce::Decibels::decibelsToGain(hiG));
-    *rightEQ_.get<3>().coefficients = *juce::dsp::IIR::Coefficients<float>::makeHighShelf(sr, hiF, 0.707f, juce::Decibels::decibelsToGain(hiG));
+    *leftEQ_.get<3>().coefficients = *juce::dsp::IIR::Coefficients<float>::makeHighShelf(sr, hiF, hiQ, juce::Decibels::decibelsToGain(hiG));
+    *rightEQ_.get<3>().coefficients = *juce::dsp::IIR::Coefficients<float>::makeHighShelf(sr, hiF, hiQ, juce::Decibels::decibelsToGain(hiG));
 
     // LPF
     *leftEQ_.get<4>().coefficients = *juce::dsp::IIR::Coefficients<float>::makeLowPass(sr, lpf);
     *rightEQ_.get<4>().coefficients = *juce::dsp::IIR::Coefficients<float>::makeLowPass(sr, lpf);
 }
 
-void BZideProcessor::setSectionOrder(const std::array<int, 5>& order)
+void BZideProcessor::setSectionOrder(const std::array<int, 6>& order)
 {
-    for (int i = 0; i < 5; ++i)
+    for (int i = 0; i < 6; ++i)
         sectionOrder_[i].store(order[(size_t)i]);
 }
 
@@ -355,6 +394,10 @@ void BZideProcessor::processDS2(juce::AudioBuffer<float>& buffer)
             *apvts.getRawParameterValue("ds_freq2"),
             *apvts.getRawParameterValue("ds_thresh2"), -12.0f);
         deEsser_.process(buffer);
+
+        // Apply output gain
+        float dsOutGain = juce::Decibels::decibelsToGain((float)*apvts.getRawParameterValue("ds_output"));
+        buffer.applyGain(dsOutGain);
     }
 }
 
@@ -372,6 +415,10 @@ void BZideProcessor::processComp(juce::AudioBuffer<float>& buffer)
     compressor_.setModel(static_cast<BZideCompressor::Model>(compType));
     compressor_.process(buffer);
     gainReduction.store(compressor_.getGainReduction());
+
+    // Apply comp output gain
+    float compOutGain = juce::Decibels::decibelsToGain((float)*apvts.getRawParameterValue("comp_output"));
+    buffer.applyGain(compOutGain);
 }
 
 void BZideProcessor::processGate(juce::AudioBuffer<float>& buffer)
@@ -402,6 +449,40 @@ void BZideProcessor::pushNextSampleIntoFifo(float sample)
     fifo[fifoIndex++] = sample;
 }
 
+// ── Insert slot management ──────────────────────────────────────────
+void BZideProcessor::loadInsert(int slotIndex, InsertProcessor::ModuleType type)
+{
+    if (slotIndex < 0 || slotIndex >= numInsertSlots) return;
+    insertSlots_[slotIndex].loadModule(type, currentSampleRate_, getBlockSize());
+}
+
+void BZideProcessor::removeInsert(int slotIndex)
+{
+    if (slotIndex < 0 || slotIndex >= numInsertSlots) return;
+    insertSlots_[slotIndex].unload();
+}
+
+void BZideProcessor::setInsertBypass(int slotIndex, bool bypassed)
+{
+    if (slotIndex < 0 || slotIndex >= numInsertSlots) return;
+    insertSlots_[slotIndex].setBypass(bypassed);
+}
+
+void BZideProcessor::swapInserts(int indexA, int indexB)
+{
+    if (indexA < 0 || indexA >= numInsertSlots) return;
+    if (indexB < 0 || indexB >= numInsertSlots) return;
+    if (indexA == indexB) return;
+    std::swap(insertSlots_[indexA], insertSlots_[indexB]);
+}
+
+void BZideProcessor::processInserts(juce::AudioBuffer<float>& buffer)
+{
+    for (int i = 0; i < numInsertSlots; ++i)
+        insertSlots_[i].process(buffer);
+}
+
+// ── State persistence ───────────────────────────────────────────────
 void BZideProcessor::getStateInformation(juce::MemoryBlock& destData)
 {
     auto state = apvts.copyState();
@@ -409,8 +490,18 @@ void BZideProcessor::getStateInformation(juce::MemoryBlock& destData)
 
     // Save section order
     auto* orderXml = xml->createNewChildElement("SectionOrder");
-    for (int i = 0; i < 5; ++i)
+    for (int i = 0; i < 6; ++i)
         orderXml->setAttribute("s" + juce::String(i), sectionOrder_[i].load());
+
+    // Save insert slots
+    auto* insertsXml = xml->createNewChildElement("Inserts");
+    for (int i = 0; i < numInsertSlots; ++i)
+    {
+        auto* slotXml = insertsXml->createNewChildElement("Slot");
+        slotXml->setAttribute("index", i);
+        slotXml->setAttribute("module", static_cast<int>(insertSlots_[i].getModuleType()));
+        slotXml->setAttribute("bypassed", insertSlots_[i].isBypassed());
+    }
 
     copyXmlToBinary(*xml, destData);
 }
@@ -423,12 +514,32 @@ void BZideProcessor::setStateInformation(const void* data, int sizeInBytes)
         // Restore section order
         if (auto* orderXml = xml->getChildByName("SectionOrder"))
         {
-            for (int i = 0; i < 5; ++i)
+            for (int i = 0; i < 6; ++i)
                 sectionOrder_[i].store(orderXml->getIntAttribute("s" + juce::String(i), i));
         }
 
-        // Remove the SectionOrder child before restoring APVTS state
+        // Restore insert slots
+        if (auto* insertsXml = xml->getChildByName("Inserts"))
+        {
+            for (auto* slotXml : insertsXml->getChildIterator())
+            {
+                int idx = slotXml->getIntAttribute("index", -1);
+                int mod = slotXml->getIntAttribute("module", 0);
+                bool byp = slotXml->getBoolAttribute("bypassed", false);
+
+                if (idx >= 0 && idx < numInsertSlots && mod > 0)
+                {
+                    insertSlots_[idx].loadModule(
+                        static_cast<InsertProcessor::ModuleType>(mod),
+                        currentSampleRate_, getBlockSize());
+                    insertSlots_[idx].setBypass(byp);
+                }
+            }
+        }
+
+        // Remove custom children before restoring APVTS state
         xml->deleteAllChildElementsWithTagName("SectionOrder");
+        xml->deleteAllChildElementsWithTagName("Inserts");
         apvts.replaceState(juce::ValueTree::fromXml(*xml));
     }
 }

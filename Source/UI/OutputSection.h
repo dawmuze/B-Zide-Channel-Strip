@@ -1,6 +1,7 @@
 #pragma once
 #include "ChannelSection.h"
 #include "MeterChannel.h"
+#include "LimiterWindow.h"
 
 class OutputSection : public ChannelSection
 {
@@ -32,18 +33,43 @@ public:
         }
         routeStereo.setToggleState(true, juce::dontSendNotification);
 
-        // Limiter button + attachment
+        // L2 Limiter — Threshold fader (invisible thumb, painted by L2 draw code)
+        limThreshFader.setSliderStyle(juce::Slider::LinearVertical);
+        limThreshFader.setTextBoxStyle(juce::Slider::NoTextBox, true, 0, 0);
+        limThreshFader.setColour(juce::Slider::trackColourId, juce::Colours::transparentBlack);
+        limThreshFader.setColour(juce::Slider::thumbColourId, juce::Colours::transparentBlack);
+        limThreshFader.setColour(juce::Slider::backgroundColourId, juce::Colours::transparentBlack);
+        addAndMakeVisible(limThreshFader);
+        limThreshAtt = std::make_unique<SA>(apvts, "out_limiter_thresh", limThreshFader);
+
+        // L2 Limiter — Out Ceiling fader (invisible thumb)
+        limCeilingFader.setSliderStyle(juce::Slider::LinearVertical);
+        limCeilingFader.setTextBoxStyle(juce::Slider::NoTextBox, true, 0, 0);
+        limCeilingFader.setColour(juce::Slider::trackColourId, juce::Colours::transparentBlack);
+        limCeilingFader.setColour(juce::Slider::thumbColourId, juce::Colours::transparentBlack);
+        limCeilingFader.setColour(juce::Slider::backgroundColourId, juce::Colours::transparentBlack);
+        addAndMakeVisible(limCeilingFader);
+        limCeilingAtt = std::make_unique<SA>(apvts, "out_limiter_ceiling", limCeilingFader);
+
+        // L2 Limiter — Release fader (keeps visible thumb for interaction)
+        limReleaseFader.setSliderStyle(juce::Slider::LinearVertical);
+        limReleaseFader.setTextBoxStyle(juce::Slider::NoTextBox, true, 0, 0);
+        limReleaseFader.setPaintingIsUnclipped(true);
+        addAndMakeVisible(limReleaseFader);
+        limReleaseAtt = std::make_unique<SA>(apvts, "out_limiter_release", limReleaseFader);
+
+        // L2 Limiter — ON button
         limiterBtn.setClickingTogglesState(true);
         limiterBtn.setColour(juce::TextButton::buttonOnColourId, juce::Colour(0xFFDD2200));
         addAndMakeVisible(limiterBtn);
         limiterBtnAtt = std::make_unique<BA>(apvts, "out_limiter", limiterBtn);
 
-        // Limiter threshold knob
-        setupKnob(limiterThresh);
-        limiterThreshAtt = std::make_unique<SA>(apvts, "out_limiter_thresh", limiterThresh);
-
-        // Limiter LED
-        addAndMakeVisible(limLED);
+        // L2 buttons
+        for (auto* b : { &arcBtn, &quantizeBtn, &ditherBtn, &shapingBtn })
+        {
+            b->setClickingTogglesState(true);
+            addAndMakeVisible(b);
+        }
 
         // Phase invert buttons — one per channel
         for (auto* b : { &phaseLBtn, &phaseRBtn })
@@ -52,6 +78,8 @@ public:
             b->setColour(juce::TextButton::buttonOnColourId, juce::Colour(0xFF8B1515));
             addAndMakeVisible(b);
         }
+        phaseLAtt = std::make_unique<BA>(apvts, "out_phase_l", phaseLBtn);
+        phaseRAtt = std::make_unique<BA>(apvts, "out_phase_r", phaseRBtn);
 
         // 4 Faders — SSL-style vertical
         auto setupFader = [this](juce::Slider& f) {
@@ -85,7 +113,6 @@ public:
     }
 
     juce::TextButton& getLimiterButton() { return limiterBtn; }
-    LEDComponent& getLED() { return limLED; }
 
     void updateMeter()
     {
@@ -110,12 +137,12 @@ public:
         // Mirror output fader R from L
         outFaderR.setValue(outFaderL.getValue(), juce::dontSendNotification);
 
-        // GR smoothing
-        float grTarget = processor.gainReduction.load();
-        if (grTarget < grLevel)
-            grLevel += (grTarget - grLevel) * 0.3f;
+        // GR smoothing from limiter
+        float grTarget = processor.getLimiterGR();
+        if (grTarget > limGrSmoothed)
+            limGrSmoothed += (grTarget - limGrSmoothed) * 0.3f;
         else
-            grLevel += (grTarget - grLevel) * 0.05f;
+            limGrSmoothed += (grTarget - limGrSmoothed) * 0.05f;
 
         // VU meter display based on selection
         if (meterSelIn.getToggleState())
@@ -217,6 +244,232 @@ protected:
             g.drawText("OUTPUT", outBlockLeft, outputLedBounds.getY() - 14, outBlockRight - outBlockLeft, 12, juce::Justification::centred);
         }
 
+        // ── KIL2-MAXIMIZER LIMITER ──
+        if (limiterSectionY > 0)
+        {
+            // Dark background matching plugin theme
+            auto limArea = juce::Rectangle<int>(4, limiterSectionY, sectionWidth - 8, getHeight() - limiterSectionY - 4);
+            g.setColour(juce::Colour(0xFF0E0E12));
+            g.fillRoundedRectangle(limArea.toFloat(), 4.0f);
+
+            // Subtle inner bevel
+            g.setColour(juce::Colour(0x15FFFFFF));
+            g.drawHorizontalLine(limArea.getY() + 1, (float)limArea.getX() + 3, (float)limArea.getRight() - 3);
+            g.setColour(juce::Colour(0x30000000));
+            g.drawHorizontalLine(limArea.getBottom() - 1, (float)limArea.getX() + 3, (float)limArea.getRight() - 3);
+
+            // (title removed)
+
+            // ── Draw a dual-bar meter column with movable LCD thumb ──
+            auto drawMeterColumn = [&](int colX, int colW2, int barTop, int barH,
+                                       const juce::String& label, float displayVal,
+                                       float normalizedVal, // 0..1 for LCD position
+                                       juce::Rectangle<int> readoutBounds)
+            {
+                int mBarW = 10;
+                int barLX = colX;
+                int barRX = colX + colW2 - mBarW;
+                float centerX = (float)(barLX + mBarW + barRX) * 0.5f;
+
+                // Column label
+                g.setColour(juce::Colour(0xFF999999));
+                g.setFont(juce::Font(juce::FontOptions(8.0f)).boldened());
+                g.drawText(label, colX - 8, barTop - 14, colW2 + 16, 12, juce::Justification::centred);
+
+                // Deep black slots for bars
+                for (int bx : { barLX, barRX })
+                {
+                    g.setColour(juce::Colour(0xFF080808));
+                    g.fillRoundedRectangle((float)bx - 1.0f, (float)barTop - 1.0f,
+                                           (float)mBarW + 2.0f, (float)barH + 2.0f, 2.0f);
+                    // Inner shadow
+                    g.setColour(juce::Colour(0x50000000));
+                    g.drawHorizontalLine(barTop, (float)bx, (float)(bx + mBarW));
+                }
+
+                // Gradient bars — fluid (yellow bottom → orange → red top)
+                for (int bx : { barLX, barRX })
+                {
+                    juce::ColourGradient barGrad(
+                        juce::Colour(0xFFDD2200), (float)bx, (float)barTop,
+                        juce::Colour(0xFFFFCC00), (float)bx, (float)(barTop + barH), false);
+                    barGrad.addColour(0.4, juce::Colour(0xFFFF6600));
+                    g.setGradientFill(barGrad);
+                    g.fillRect(bx, barTop, mBarW, barH);
+                }
+
+                // Center scale marks (subtle, between bars)
+                g.setColour(juce::Colour(0xFF555558));
+                int numMarks = 12;
+                for (int m = 0; m < numMarks; ++m)
+                {
+                    float my = (float)barTop + ((float)m / (float)(numMarks - 1)) * (float)barH;
+                    g.drawLine(centerX - 5.0f, my, centerX - 2.0f, my, 0.7f);
+                    g.drawLine(centerX + 2.0f, my, centerX + 5.0f, my, 0.7f);
+                }
+
+                // Movable LCD thumb — positioned by normalized value (0=bottom, 1=top)
+                int lcdW = colW2 - mBarW * 2 - 4; // fits inside gap without touching bars
+                int lcdH = 16;
+                int lcdX = colX + colW2 / 2 - lcdW / 2;
+                // Map normalizedVal: 0=bottom of bar, 1=top of bar
+                int lcdY = barTop + (int)((1.0f - normalizedVal) * (float)(barH - lcdH));
+                lcdY = juce::jlimit(barTop, barTop + barH - lcdH, lcdY);
+
+                // Metal frame with supports
+                g.setColour(juce::Colour(0xFF444448));
+                g.fillRoundedRectangle((float)(lcdX - 3), (float)(lcdY - 2), (float)(lcdW + 6), (float)(lcdH + 4), 3.0f);
+                g.setColour(juce::Colour(0xFF333338));
+                g.drawRoundedRectangle((float)(lcdX - 3), (float)(lcdY - 2), (float)(lcdW + 6), (float)(lcdH + 4), 3.0f, 1.0f);
+                // Small mounting wings
+                g.setColour(juce::Colour(0xFF3A3A40));
+                g.fillEllipse((float)(lcdX - 5), (float)(lcdY + lcdH / 2 - 2), 4.0f, 4.0f);
+                g.fillEllipse((float)(lcdX + lcdW + 1), (float)(lcdY + lcdH / 2 - 2), 4.0f, 4.0f);
+
+                // LCD background
+                g.setColour(juce::Colour(0xFF101010));
+                g.fillRoundedRectangle((float)lcdX, (float)lcdY, (float)lcdW, (float)lcdH, 2.0f);
+
+                // Value text
+                g.setColour(juce::Colour(0xFFE8E8E0));
+                g.setFont(juce::Font(juce::FontOptions(9.0f)).boldened());
+                g.drawText(juce::String(displayVal, 1), lcdX, lcdY, lcdW, lcdH, juce::Justification::centred);
+
+                // Bottom readout
+                if (!readoutBounds.isEmpty())
+                {
+                    g.setColour(juce::Colour(0xFF1A1510));
+                    g.fillRoundedRectangle(readoutBounds.toFloat(), 2.0f);
+                    g.setColour(juce::Colour(0xFFCC6600));
+                    g.setFont(juce::Font(juce::FontOptions(7.0f)).boldened());
+                    g.drawText(juce::String(displayVal, 1), readoutBounds, juce::Justification::centred);
+                }
+            };
+
+            // Draw columns
+            int barTop = limThreshFader.getY();
+            int barH = limThreshFader.getHeight();
+            int thColW = limThreshFader.getWidth();
+
+            // Normalize threshold: range -30..0, so normalized = (val - (-30)) / 30
+            float threshNorm = ((float)limThreshFader.getValue() + 30.0f) / 30.0f;
+            drawMeterColumn(limThreshFader.getX(), thColW, barTop, barH,
+                           "Threshold", (float)limThreshFader.getValue(),
+                           threshNorm, limThreshReadout);
+
+            // Normalize ceiling: range -12..0
+            float ceilNorm = ((float)limCeilingFader.getValue() + 12.0f) / 12.0f;
+            drawMeterColumn(limCeilingFader.getX(), limCeilingFader.getWidth(), barTop, barH,
+                           "Out Ceiling", (float)limCeilingFader.getValue(),
+                           ceilNorm, limCeilingReadout);
+
+            // RELEASE column (no dual bars, just fader + label)
+            g.setColour(juce::Colour(0xFF999999));
+            g.setFont(juce::Font(juce::FontOptions(8.0f)).boldened());
+            g.drawText("Release", limReleaseFader.getX() - 10, barTop - 14, limReleaseFader.getWidth() + 20, 12, juce::Justification::centred);
+
+            // Release scale marks
+            g.setColour(juce::Colour(0xFF666668));
+            g.setFont(juce::Font(juce::FontOptions(6.0f)));
+            float relScaleVals[] = { 100.0f, 10.0f, 1.0f, 0.1f, 0.01f };
+            const char* relScaleLabels[] = { "100", "10.0", "1.0", "0.1", "0.01" };
+            for (int i = 0; i < 5; ++i)
+            {
+                float t = (float)i / 4.0f;
+                int markY = barTop + (int)(t * (float)barH);
+                int rx = limReleaseFader.getRight() + 2;
+                g.drawText(relScaleLabels[i], rx, markY - 4, 30, 8, juce::Justification::centredLeft);
+            }
+
+            // ATTEN (GR) column — single wide gradient bar
+            if (!limAttenMeterBounds.isEmpty())
+            {
+                auto mb = limAttenMeterBounds;
+                float grDb = std::abs(limGrSmoothed);
+
+                g.setColour(juce::Colour(0xFF999999));
+                g.setFont(juce::Font(juce::FontOptions(8.0f)).boldened());
+                g.drawText("Atten", mb.getX() - 8, barTop - 14, mb.getWidth() + 16, 12, juce::Justification::centred);
+
+                // Black slot
+                g.setColour(juce::Colour(0xFF0A0A0A));
+                g.fillRoundedRectangle(mb.toFloat().expanded(1), 2.0f);
+
+                // GR bar (fills from top down based on GR amount)
+                float fillRatio = juce::jlimit(0.0f, 1.0f, grDb / 30.0f);
+                int fillH = (int)(fillRatio * (float)mb.getHeight());
+                if (fillH > 0)
+                {
+                    juce::ColourGradient grGrad(
+                        juce::Colour(0xFFDD2200), (float)mb.getX(), (float)mb.getY(),
+                        juce::Colour(0xFFFFCC00), (float)mb.getX(), (float)mb.getBottom(), false);
+                    grGrad.addColour(0.4, juce::Colour(0xFFFF6600));
+                    g.setGradientFill(grGrad);
+                    g.fillRect(mb.getX(), mb.getY(), mb.getWidth(), fillH);
+                }
+
+                // Scale labels
+                g.setColour(juce::Colour(0xFF666668));
+                g.setFont(juce::Font(juce::FontOptions(6.0f)));
+                int attenScaleVals[] = { 0, 3, 6, 9, 12, 15, 18, 21, 24, 30 };
+                for (int i = 0; i < 10; ++i)
+                {
+                    float t = (float)attenScaleVals[i] / 30.0f;
+                    int sy = mb.getY() + (int)(t * (float)mb.getHeight());
+                    g.drawText(juce::String(attenScaleVals[i]), mb.getRight() + 1, sy - 4, 14, 8, juce::Justification::centredLeft);
+                }
+
+                // Atten readout
+                if (!limAttenReadout.isEmpty())
+                {
+                    g.setColour(juce::Colour(0xFF1A1510));
+                    g.fillRoundedRectangle(limAttenReadout.toFloat(), 2.0f);
+                    g.setColour(juce::Colour(0xFFCC6600));
+                    g.setFont(juce::Font(juce::FontOptions(7.0f)).boldened());
+                    g.drawText(juce::String(-limGrSmoothed, 1), limAttenReadout, juce::Justification::centred);
+                }
+            }
+
+            // ── Vertical divider lines between sections ──
+            auto drawLimDivider = [&](int divX) {
+                g.setColour(juce::Colour(0xFF333338));
+                g.drawVerticalLine(divX - 1, (float)(barTop - 16), (float)(barTop + barH + 18));
+                g.setColour(juce::Colour(0xFF1A1A20));
+                g.drawVerticalLine(divX, (float)(barTop - 16), (float)(barTop + barH + 18));
+                g.setColour(juce::Colour(0xFF2A2A30));
+                g.drawVerticalLine(divX + 1, (float)(barTop - 16), (float)(barTop + barH + 18));
+            };
+
+            // Divider between Threshold and Out Ceiling
+            int div1X = (limThreshFader.getRight() + limCeilingFader.getX()) / 2;
+            drawLimDivider(div1X);
+
+            // Divider between Out Ceiling and Release
+            int div2X = (limCeilingFader.getRight() + limReleaseFader.getX()) / 2;
+            drawLimDivider(div2X);
+
+            // Divider between Release and Atten
+            int div3X = (limReleaseFader.getRight() + limAttenMeterBounds.getX()) / 2;
+            drawLimDivider(div3X);
+
+            // Divider between Atten and A.K panel
+            int div4X = limAttenMeterBounds.getRight() + 14;
+            drawLimDivider(div4X);
+
+            // A.K label (above buttons)
+            {
+                g.setColour(juce::Colour(0xFFCC2200));
+                g.setFont(juce::Font(juce::FontOptions(14.0f)).boldened());
+                g.drawText("A.K", quantizeBtn.getX(), quantizeBtn.getY() - 22, quantizeBtn.getWidth(), 16, juce::Justification::centred);
+
+                // Labels for buttons
+                g.setColour(juce::Colour(0xFF888888));
+                g.setFont(juce::Font(juce::FontOptions(7.0f)).boldened());
+                g.drawText("QUANTIZE", quantizeBtn.getX(), quantizeBtn.getY() - 10, quantizeBtn.getWidth(), 10, juce::Justification::centred);
+                g.drawText("DITHER", ditherBtn.getX(), ditherBtn.getY() - 10, ditherBtn.getWidth(), 10, juce::Justification::centred);
+                g.drawText("SHAPING", shapingBtn.getX(), shapingBtn.getY() - 10, shapingBtn.getWidth(), 10, juce::Justification::centred);
+            }
+        }
     }
 
     void paintSectionLabels(juce::Graphics& g) override
@@ -305,13 +558,14 @@ protected:
         int blockW = faderW * 2 + ledW + innerGap * 2;
         // halfW already declared above
 
-        // Phase buttons — both above INPUT block (L and R phase invert)
+        // Phase buttons — one on each side of INPUT block, leaving center for "INPUT" label
         int phBtnW = 22;
         int phBtnH = 16;
-        int phGap = 4;
-        int inCPhase = halfW / 2;
-        phaseLBtn.setBounds(inCPhase - phBtnW - phGap / 2, meterStripY - 16, phBtnW, phBtnH);
-        phaseRBtn.setBounds(inCPhase + phGap / 2, meterStripY - 16, phBtnW, phBtnH);
+        int inCenterX2 = halfW / 2;
+        int inBlockLeft2 = inCenterX2 - blockW / 2;
+        int inBlockRight2 = inCenterX2 + blockW / 2;
+        phaseLBtn.setBounds(inBlockLeft2, meterStripY - 16, phBtnW, phBtnH);
+        phaseRBtn.setBounds(inBlockRight2 - phBtnW, meterStripY - 16, phBtnW, phBtnH);
 
         // Faders exactly same bounds as LED meters — setPaintingIsUnclipped handles thumb overflow
         // INPUT block — centered in LEFT half
@@ -338,20 +592,66 @@ protected:
         inputReadoutBounds = juce::Rectangle<int>(inCenterX - readoutW / 2, readoutY, readoutW, readoutH);
         outputReadoutBounds = juce::Rectangle<int>(outCenterX - readoutW / 2, readoutY, readoutW, readoutH);
 
-        // Row 7: Link button
-        int linkY = readoutY + readoutH + 6;
-        linkBtn.setBounds((sectionWidth - 60) / 2, linkY, 60, 16);
+        // Link button — centered between INPUT and OUTPUT fader blocks
+        int linkBtnW = 36;
+        int linkBtnH = 16;
+        int gapCenter = (inFaderR.getRight() + outFaderL.getX()) / 2;
+        int linkY = meterStripY + meterStripH / 2 - linkBtnH / 2;
+        linkBtn.setBounds(gapCenter - linkBtnW / 2, linkY, linkBtnW, linkBtnH);
 
-        // ── LIMITER SECTION — bottom of the output panel ──
-        int limY = linkY + 24;
+        // ── KIL2-MAXIMIZER LIMITER ──
+        limiterSectionY = readoutY + readoutH + 6;
+        int limY = limiterSectionY + 20; // after title
 
-        // Limiter button — centered left
-        int limBtnW = 70;
-        limiterBtn.setBounds((sectionWidth / 2) - limBtnW - 4, limY, limBtnW, 24);
-        limLED.setBounds((sectionWidth / 2) + limBtnW - 48, limY + 3, 18, 18);
+        // sectionWidth = 340. Layout: 5 zones evenly distributed
+        // Threshold(60) | sep | Ceiling(60) | sep | Release(24) | sep | Atten(18) | sep | A.K(56)
+        // Total content: 60+60+24+18+56 = 218. Remaining: 340-218-20(margins) = 102. 4 seps = 25 each
+        int barW = 10;
+        int lcdGap = 40;
+        int colW = barW * 2 + lcdGap;  // = 60px dual-bar column
+        int lFaderH = 120;
+        int colSep = 24;     // generous separation between each section
+        int lReadoutW = 36;
+        int lReadoutH = 12;
+        int barTopY = limY + 18;
 
-        // Thresh knob — centered right
-        limiterThresh.setBounds((sectionWidth / 2) + 4, limY - 10, 66, 66);
+        // Calculate total content width and center it
+        int relW = 24;
+        int attenW = 18;
+        int idrBtnW = 50;
+        int totalLimW = colW + colSep + colW + colSep + relW + colSep + attenW + colSep + idrBtnW;
+        int limStartX = (sectionWidth - totalLimW) / 2;
+
+        // LIMIT button (above, centered)
+        limiterBtn.setBounds(sectionWidth / 2 - 18, limiterSectionY + 4, 36, 14);
+
+        // THRESHOLD column
+        limThreshFader.setBounds(limStartX, barTopY, colW, lFaderH);
+        limThreshReadout = juce::Rectangle<int>(limStartX + colW / 2 - lReadoutW / 2, barTopY + lFaderH + 4, lReadoutW, lReadoutH);
+
+        // OUT CEILING column
+        int ceilX = limStartX + colW + colSep;
+        limCeilingFader.setBounds(ceilX, barTopY, colW, lFaderH);
+        limCeilingReadout = juce::Rectangle<int>(ceilX + colW / 2 - lReadoutW / 2, barTopY + lFaderH + 4, lReadoutW, lReadoutH);
+
+        // RELEASE column
+        int relX = ceilX + colW + colSep;
+        limReleaseFader.setBounds(relX, barTopY, relW, lFaderH);
+        arcBtn.setBounds(relX + relW / 2 - 14, barTopY + lFaderH + 4, 28, lReadoutH);
+
+        // ATTEN meter
+        int attenX = relX + relW + colSep;
+        limAttenMeterBounds = juce::Rectangle<int>(attenX, barTopY, attenW, lFaderH);
+        limAttenReadout = juce::Rectangle<int>(attenX + attenW / 2 - lReadoutW / 2, barTopY + lFaderH + 4, lReadoutW, lReadoutH);
+
+        // A.K panel buttons
+        int lBtnH = 16;
+        int idrX = attenX + attenW + colSep;
+
+        int qY = barTopY + 24;
+        quantizeBtn.setBounds(idrX, qY, idrBtnW, lBtnH);
+        ditherBtn.setBounds(idrX, qY + lBtnH + 18, idrBtnW, lBtnH);
+        shapingBtn.setBounds(idrX, qY + (lBtnH + 18) * 2, idrBtnW, lBtnH);
     }
 
 private:
@@ -397,10 +697,19 @@ private:
     juce::TextButton routeMono    { "MONO" };
     juce::TextButton routeS       { "SOLO" };
 
-    // Limiter
+    // L2 Ultramaximizer Limiter
     juce::TextButton limiterBtn   { "LIMIT" };
-    juce::Slider     limiterThresh;
-    LEDComponent     limLED;
+    juce::Slider     limThreshFader;
+    juce::Slider     limCeilingFader;
+    juce::Slider     limReleaseFader;
+    juce::TextButton arcBtn       { "ARC" };
+    juce::TextButton quantizeBtn  { "24 Bits" };
+    juce::TextButton ditherBtn    { "Type1" };
+    juce::TextButton shapingBtn   { "Normal" };
+    float limGrSmoothed = 0.0f;
+    int limiterSectionY = 0;
+    juce::Rectangle<int> limAttenMeterBounds;
+    juce::Rectangle<int> limThreshReadout, limCeilingReadout, limAttenReadout;
 
     // Phase invert — L and R (icon drawn in paint, no text)
     juce::TextButton phaseLBtn    { "" };
@@ -420,8 +729,8 @@ private:
     using SA = juce::AudioProcessorValueTreeState::SliderAttachment;
     using BA = juce::AudioProcessorValueTreeState::ButtonAttachment;
     using CA = juce::AudioProcessorValueTreeState::ComboBoxAttachment;
-    std::unique_ptr<SA> outFaderAtt, outFaderRAtt, limiterThreshAtt;
-    std::unique_ptr<BA> limiterBtnAtt;
+    std::unique_ptr<SA> outFaderAtt, outFaderRAtt, limThreshAtt, limCeilingAtt, limReleaseAtt;
+    std::unique_ptr<BA> limiterBtnAtt, phaseLAtt, phaseRAtt;
     std::unique_ptr<CA> outModeAtt;
 
     // ---- LED Meter constants ----

@@ -11,28 +11,41 @@ public:
     {
         eqBypassAtt = std::make_unique<BA>(apvts, "eq_bypass", bypassBtn);
 
+        // HIGH band — red tones (slightly different from default 0xFFDD2200)
+        juce::Colour highCol(0xFFE83010);
         setupKnob(eqHighGain); eqHighGainAtt = std::make_unique<SA>(apvts, "eq_high_gain", eqHighGain);
+        eqHighGain.setColour(juce::Slider::rotarySliderFillColourId, highCol);
         setupKnob(eqHighFreq); eqHighFreqAtt = std::make_unique<SA>(apvts, "eq_high_freq", eqHighFreq);
-
-        // HIGH Q — display-only, no APVTS param
+        eqHighFreq.setColour(juce::Slider::rotarySliderFillColourId, highCol.darker(0.3f));
         setupKnob(eqHighQ);
-        eqHighQ.setRange(0.1, 10.0, 0.01);
-        eqHighQ.setValue(0.707, juce::dontSendNotification);
+        eqHighQ.setColour(juce::Slider::rotarySliderFillColourId, highCol.darker(0.5f));
+        eqHighQAtt = std::make_unique<SA>(apvts, "eq_high_q", eqHighQ);
 
+        // MID band — green tones
+        juce::Colour midCol(0xFF22c55e);
         setupKnob(eqMidGain);  eqMidGainAtt  = std::make_unique<SA>(apvts, "eq_mid_gain",  eqMidGain);
+        eqMidGain.setColour(juce::Slider::rotarySliderFillColourId, midCol);
         setupKnob(eqMidFreq);  eqMidFreqAtt  = std::make_unique<SA>(apvts, "eq_mid_freq",  eqMidFreq);
+        eqMidFreq.setColour(juce::Slider::rotarySliderFillColourId, midCol.darker(0.3f));
         setupKnob(eqMidQ);     eqMidQAtt     = std::make_unique<SA>(apvts, "eq_mid_q",     eqMidQ);
+        eqMidQ.setColour(juce::Slider::rotarySliderFillColourId, midCol.darker(0.5f));
 
+        // LOW band — blue tones
+        juce::Colour lowCol(0xFF3b82f6);
         setupKnob(eqLowGain);  eqLowGainAtt  = std::make_unique<SA>(apvts, "eq_low_gain",  eqLowGain);
+        eqLowGain.setColour(juce::Slider::rotarySliderFillColourId, lowCol);
         setupKnob(eqLowFreq);  eqLowFreqAtt  = std::make_unique<SA>(apvts, "eq_low_freq",  eqLowFreq);
-
-        // LOW Q — display-only, no APVTS param
+        eqLowFreq.setColour(juce::Slider::rotarySliderFillColourId, lowCol.darker(0.3f));
         setupKnob(eqLowQ);
-        eqLowQ.setRange(0.1, 10.0, 0.01);
-        eqLowQ.setValue(0.707, juce::dontSendNotification);
+        eqLowQ.setColour(juce::Slider::rotarySliderFillColourId, lowCol.darker(0.5f));
+        eqLowQAtt = std::make_unique<SA>(apvts, "eq_low_q", eqLowQ);
 
+        // FILTERS — brown/amber tones
+        juce::Colour filterCol(0xFF92400e);
         setupKnob(eqHpf);     eqHpfAtt      = std::make_unique<SA>(apvts, "eq_hpf",       eqHpf);
+        eqHpf.setColour(juce::Slider::rotarySliderFillColourId, filterCol);
         setupKnob(eqLpf);     eqLpfAtt      = std::make_unique<SA>(apvts, "eq_lpf",       eqLpf);
+        eqLpf.setColour(juce::Slider::rotarySliderFillColourId, filterCol.darker(0.2f));
 
         // Curve type buttons — HIGH (radio group 2001)
         for (auto* b : { &highCurve1, &highCurve2, &highCurve3 }) {
@@ -77,6 +90,11 @@ public:
 protected:
     void paintSectionContent(juce::Graphics& g) override
     {
+        // EQ section has a gray background instead of black
+        auto contentArea = getContentArea();
+        g.setColour(juce::Colour(0xFF1A1A20));
+        g.fillRect(contentArea);
+
         // --- Recessed panel header lambda ---
         auto drawSectionHeader = [&](int headerY, const juce::String& text) {
             int hdrH = 18;
@@ -146,6 +164,13 @@ protected:
         drawDiv(lowDivY);
 
         drawSectionHeader(filtersHeaderY, "FILTERS");
+
+        // Divider below FILTERS + EQ PREVIEW header
+        if (analyzerHeaderY > 0)
+        {
+            drawDiv(analyzerHeaderY - 4);
+            drawSectionHeader(analyzerHeaderY, "EQ PREVIEW");
+        }
 
         // Vertical divider between HPF and LPF
         if (eqHpf.getHeight() > 0)
@@ -345,9 +370,11 @@ protected:
         eqLpf.setBounds(filterStartX + fw + filterGap, y, fw, filterKnob + 22);
         y += filterKnob + 22 + 8;
 
-        // Analyzer button
-        int btnW = sectionWidth - 16;
-        analyzerBtn.setBounds((sectionWidth - btnW) / 2, y, btnW, 20);
+        // EQ PREVIEW header + Analyzer button
+        analyzerHeaderY = y;
+        y += 22; // header space
+        int btnW = sectionWidth - 20;
+        analyzerBtn.setBounds((sectionWidth - btnW) / 2, y, btnW, 22);
     }
 
 private:
@@ -368,14 +395,15 @@ private:
     std::unique_ptr<SA> eqHpfAtt, eqLpfAtt;
     std::unique_ptr<SA> eqLowFreqAtt, eqLowGainAtt;
     std::unique_ptr<SA> eqMidFreqAtt, eqMidGainAtt, eqMidQAtt;
-    std::unique_ptr<SA> eqHighFreqAtt, eqHighGainAtt;
-    // Note: eqHighQ and eqLowQ are display-only (no APVTS attachment)
+    std::unique_ptr<SA> eqHighFreqAtt, eqHighGainAtt, eqHighQAtt;
+    std::unique_ptr<SA> eqLowQAtt;
 
     // Stored Y positions for paint pass
     int highHeaderY = 0, highDivY = 0;
     int midHeaderY = 0, midDivY = 0;
     int lowHeaderY = 0, lowDivY = 0;
     int filtersHeaderY = 0;
+    int analyzerHeaderY = 0;
 
     // Analyzer
     BZideProcessor* processorRef = nullptr;
