@@ -19,10 +19,9 @@ public:
         setupKnob(preHPF);
         preHPFAtt = std::make_unique<juce::AudioProcessorValueTreeState::SliderAttachment>(apvts, "pre_tone", preHPF);
 
-        // LPF knob (display-only for now — no parameter yet)
+        // LPF knob — attached to pre_lpf parameter
         setupKnob(preLPF);
-        preLPF.setRange(20.0, 20000.0, 1.0);
-        preLPF.setValue(20000.0, juce::dontSendNotification);
+        preLPFAtt = std::make_unique<juce::AudioProcessorValueTreeState::SliderAttachment>(apvts, "pre_lpf", preLPF);
 
         // INPUT GAIN / MIX / OUTPUT knobs
         setupKnob(preInput, " dB");
@@ -48,23 +47,39 @@ public:
         else if (initType == 1) evenBtn.setToggleState(true, juce::dontSendNotification);
         else heavyBtn.setToggleState(true, juce::dontSendNotification);
 
-        // Slope buttons — 6 / 12 / 18 dB per octave (visual, left column)
+        // Slope buttons — 6 / 12 / 18 dB per octave (HPF slope, left column)
         for (auto* btn : { &slope6L, &slope12L, &slope18L })
         {
             btn->setClickingTogglesState(true);
             btn->setRadioGroupId(1002);
             addAndMakeVisible(btn);
         }
-        slope12L.setToggleState(true, juce::dontSendNotification);
+        {
+            int initHpfSlope = (int)*apvts.getRawParameterValue("pre_hpf_slope");
+            if (initHpfSlope == 0) slope6L.setToggleState(true, juce::dontSendNotification);
+            else if (initHpfSlope == 1) slope12L.setToggleState(true, juce::dontSendNotification);
+            else slope18L.setToggleState(true, juce::dontSendNotification);
+        }
+        slope6L.onClick  = [this]() { if (slope6L.getToggleState())  apvtsRef.getParameter("pre_hpf_slope")->setValueNotifyingHost(0.0f); };
+        slope12L.onClick = [this]() { if (slope12L.getToggleState()) apvtsRef.getParameter("pre_hpf_slope")->setValueNotifyingHost(0.5f); };
+        slope18L.onClick = [this]() { if (slope18L.getToggleState()) apvtsRef.getParameter("pre_hpf_slope")->setValueNotifyingHost(1.0f); };
 
-        // Slope buttons — right column
+        // Slope buttons — LPF slope, right column
         for (auto* btn : { &slope6R, &slope12R, &slope18R })
         {
             btn->setClickingTogglesState(true);
             btn->setRadioGroupId(1003);
             addAndMakeVisible(btn);
         }
-        slope12R.setToggleState(true, juce::dontSendNotification);
+        {
+            int initLpfSlope = (int)*apvts.getRawParameterValue("pre_lpf_slope");
+            if (initLpfSlope == 0) slope6R.setToggleState(true, juce::dontSendNotification);
+            else if (initLpfSlope == 1) slope12R.setToggleState(true, juce::dontSendNotification);
+            else slope18R.setToggleState(true, juce::dontSendNotification);
+        }
+        slope6R.onClick  = [this]() { if (slope6R.getToggleState())  apvtsRef.getParameter("pre_lpf_slope")->setValueNotifyingHost(0.0f); };
+        slope12R.onClick = [this]() { if (slope12R.getToggleState()) apvtsRef.getParameter("pre_lpf_slope")->setValueNotifyingHost(0.5f); };
+        slope18R.onClick = [this]() { if (slope18R.getToggleState()) apvtsRef.getParameter("pre_lpf_slope")->setValueNotifyingHost(1.0f); };
 
         // CRUNCH mode button (4th saturation mode)
         crunchBtn.setClickingTogglesState(true);
@@ -72,18 +87,26 @@ public:
         addAndMakeVisible(crunchBtn);
         crunchBtn.onClick = [this]() { if (crunchBtn.getToggleState()) setTypeParam(3); };
 
-        // LOWRIDE button
+        // LOWRIDE button — wired to pre_lowride parameter
         thumpBtn.setClickingTogglesState(true);
         addAndMakeVisible(thumpBtn);
+        thumpBtn.setToggleState(*apvts.getRawParameterValue("pre_lowride") > 0.5f, juce::dontSendNotification);
+        thumpBtn.onClick = [this]() { apvtsRef.getParameter("pre_lowride")->setValueNotifyingHost(thumpBtn.getToggleState() ? 1.0f : 0.0f); };
 
-        // 2 dB / 4 dB buttons
+        // 2 dB / 4 dB buttons — wired to pre_lowride_db parameter
         for (auto* btn : { &db2Btn, &db4Btn })
         {
             btn->setClickingTogglesState(true);
             btn->setRadioGroupId(1004);
             addAndMakeVisible(btn);
         }
-        db2Btn.setToggleState(true, juce::dontSendNotification);
+        {
+            int initLrDb = (int)*apvts.getRawParameterValue("pre_lowride_db");
+            if (initLrDb == 0) db2Btn.setToggleState(true, juce::dontSendNotification);
+            else db4Btn.setToggleState(true, juce::dontSendNotification);
+        }
+        db2Btn.onClick = [this]() { if (db2Btn.getToggleState()) apvtsRef.getParameter("pre_lowride_db")->setValueNotifyingHost(0.0f); };
+        db4Btn.onClick = [this]() { if (db4Btn.getToggleState()) apvtsRef.getParameter("pre_lowride_db")->setValueNotifyingHost(1.0f); };
     }
 
 protected:
@@ -465,7 +488,7 @@ private:
 
     int gsHeaderY = 0, parHeaderY = 0; // saved Y positions for painted headers
 
-    std::unique_ptr<juce::AudioProcessorValueTreeState::SliderAttachment> preDriveAtt, preHPFAtt, preInputAtt, preMixAtt, preOutputAtt;
+    std::unique_ptr<juce::AudioProcessorValueTreeState::SliderAttachment> preDriveAtt, preHPFAtt, preLPFAtt, preInputAtt, preMixAtt, preOutputAtt;
     std::unique_ptr<juce::AudioProcessorValueTreeState::ButtonAttachment> preBypassAtt;
 
     void setTypeParam(int value)

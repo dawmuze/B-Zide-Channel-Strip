@@ -122,6 +122,30 @@ juce::AudioProcessorValueTreeState::ParameterLayout BZideProcessor::createParame
     layout.add(std::make_unique<juce::AudioParameterChoice>(juce::ParameterID("out_mode", 1), "Output Mode",
         juce::StringArray{ "Stereo", "Mono", "M/S" }, 0));
 
+    // ── Phase 1: EQ Curve Types ──
+    layout.add(std::make_unique<juce::AudioParameterChoice>(juce::ParameterID("eq_high_type", 1), "EQ High Type", juce::StringArray{"Low Shelf","Bell","High Shelf"}, 2));
+    layout.add(std::make_unique<juce::AudioParameterChoice>(juce::ParameterID("eq_mid_type", 1), "EQ Mid Type", juce::StringArray{"Low Shelf","Bell","High Shelf"}, 1));
+    layout.add(std::make_unique<juce::AudioParameterChoice>(juce::ParameterID("eq_low_type", 1), "EQ Low Type", juce::StringArray{"Low Shelf","Bell","High Shelf"}, 0));
+
+    // ── Phase 1: Pre-Section Filters ──
+    layout.add(std::make_unique<juce::AudioParameterChoice>(juce::ParameterID("pre_hpf_slope", 1), "HPF Slope", juce::StringArray{"6","12","18"}, 1));
+    layout.add(std::make_unique<juce::AudioParameterChoice>(juce::ParameterID("pre_lpf_slope", 1), "LPF Slope", juce::StringArray{"6","12","18"}, 1));
+    layout.add(std::make_unique<juce::AudioParameterFloat>(juce::ParameterID("pre_lpf", 1), "Pre LPF", juce::NormalisableRange<float>(2000.0f, 20000.0f, 1.0f, 0.3f), 20000.0f));
+
+    // ── Phase 2: Compressor Detection / Topology ──
+    layout.add(std::make_unique<juce::AudioParameterChoice>(juce::ParameterID("comp_detect", 1), "Comp Detect", juce::StringArray{"RMS","Peak"}, 0));
+    layout.add(std::make_unique<juce::AudioParameterBool>(juce::ParameterID("comp_sc_hpf", 1), "Comp SC HPF", false));
+    layout.add(std::make_unique<juce::AudioParameterChoice>(juce::ParameterID("comp_topology", 1), "Comp Topology", juce::StringArray{"FF","FB"}, 0));
+
+    // ── Phase 3: Gate Controls ──
+    layout.add(std::make_unique<juce::AudioParameterBool>(juce::ParameterID("gate_fast", 1), "Gate Fast", false));
+    layout.add(std::make_unique<juce::AudioParameterBool>(juce::ParameterID("gate_peak", 1), "Gate Peak", true));
+    layout.add(std::make_unique<juce::AudioParameterBool>(juce::ParameterID("gate_sc", 1), "Gate SC", false));
+
+    // ── Phase 4: LOWRIDE Sub Bass ──
+    layout.add(std::make_unique<juce::AudioParameterBool>(juce::ParameterID("pre_lowride", 1), "Pre Lowride", false));
+    layout.add(std::make_unique<juce::AudioParameterChoice>(juce::ParameterID("pre_lowride_db", 1), "Lowride Amount", juce::StringArray{"2","4"}, 0));
+
     return layout;
 }
 
@@ -145,6 +169,13 @@ void BZideProcessor::prepareToPlay(double sampleRate, int samplesPerBlock)
     spec.numChannels = 1;
     leftEQ_.prepare(spec);
     rightEQ_.prepare(spec);
+
+    // LOWRIDE filters
+    lowrideL_.reset();
+    lowrideR_.reset();
+    auto lrCoeffs = juce::dsp::IIR::Coefficients<float>::makeLowShelf(sampleRate, 40.0, 0.707, 1.0f);
+    lowrideL_.coefficients = lrCoeffs;
+    lowrideR_.coefficients = lrCoeffs;
 
     updateEQ();
 }
@@ -284,6 +315,10 @@ void BZideProcessor::updateEQ()
     float lowQ = *apvts.getRawParameterValue("eq_low_q");
     float hiQ = *apvts.getRawParameterValue("eq_high_q");
 
+    int lowType = static_cast<int>(*apvts.getRawParameterValue("eq_low_type"));
+    int midType = static_cast<int>(*apvts.getRawParameterValue("eq_mid_type"));
+    int highType = static_cast<int>(*apvts.getRawParameterValue("eq_high_type"));
+
     auto sr = currentSampleRate_;
     if (sr <= 0) return;
 
@@ -291,17 +326,44 @@ void BZideProcessor::updateEQ()
     *leftEQ_.get<0>().coefficients = *juce::dsp::IIR::Coefficients<float>::makeHighPass(sr, hpf);
     *rightEQ_.get<0>().coefficients = *juce::dsp::IIR::Coefficients<float>::makeHighPass(sr, hpf);
 
-    // Low shelf
-    *leftEQ_.get<1>().coefficients = *juce::dsp::IIR::Coefficients<float>::makeLowShelf(sr, lowF, lowQ, juce::Decibels::decibelsToGain(lowG));
-    *rightEQ_.get<1>().coefficients = *juce::dsp::IIR::Coefficients<float>::makeLowShelf(sr, lowF, lowQ, juce::Decibels::decibelsToGain(lowG));
+    // Low band — dynamic curve type
+    {
+        juce::ReferenceCountedObjectPtr<juce::dsp::IIR::Coefficients<float>> coeffs;
+        if (lowType == 0)
+            coeffs = juce::dsp::IIR::Coefficients<float>::makeLowShelf(sr, lowF, lowQ, juce::Decibels::decibelsToGain(lowG));
+        else if (lowType == 1)
+            coeffs = juce::dsp::IIR::Coefficients<float>::makePeakFilter(sr, lowF, lowQ, juce::Decibels::decibelsToGain(lowG));
+        else
+            coeffs = juce::dsp::IIR::Coefficients<float>::makeHighShelf(sr, lowF, lowQ, juce::Decibels::decibelsToGain(lowG));
+        *leftEQ_.get<1>().coefficients = *coeffs;
+        *rightEQ_.get<1>().coefficients = *coeffs;
+    }
 
-    // Mid peak
-    *leftEQ_.get<2>().coefficients = *juce::dsp::IIR::Coefficients<float>::makePeakFilter(sr, midF, midQ, juce::Decibels::decibelsToGain(midG));
-    *rightEQ_.get<2>().coefficients = *juce::dsp::IIR::Coefficients<float>::makePeakFilter(sr, midF, midQ, juce::Decibels::decibelsToGain(midG));
+    // Mid band — dynamic curve type
+    {
+        juce::ReferenceCountedObjectPtr<juce::dsp::IIR::Coefficients<float>> coeffs;
+        if (midType == 0)
+            coeffs = juce::dsp::IIR::Coefficients<float>::makeLowShelf(sr, midF, midQ, juce::Decibels::decibelsToGain(midG));
+        else if (midType == 1)
+            coeffs = juce::dsp::IIR::Coefficients<float>::makePeakFilter(sr, midF, midQ, juce::Decibels::decibelsToGain(midG));
+        else
+            coeffs = juce::dsp::IIR::Coefficients<float>::makeHighShelf(sr, midF, midQ, juce::Decibels::decibelsToGain(midG));
+        *leftEQ_.get<2>().coefficients = *coeffs;
+        *rightEQ_.get<2>().coefficients = *coeffs;
+    }
 
-    // High shelf
-    *leftEQ_.get<3>().coefficients = *juce::dsp::IIR::Coefficients<float>::makeHighShelf(sr, hiF, hiQ, juce::Decibels::decibelsToGain(hiG));
-    *rightEQ_.get<3>().coefficients = *juce::dsp::IIR::Coefficients<float>::makeHighShelf(sr, hiF, hiQ, juce::Decibels::decibelsToGain(hiG));
+    // High band — dynamic curve type
+    {
+        juce::ReferenceCountedObjectPtr<juce::dsp::IIR::Coefficients<float>> coeffs;
+        if (highType == 0)
+            coeffs = juce::dsp::IIR::Coefficients<float>::makeLowShelf(sr, hiF, hiQ, juce::Decibels::decibelsToGain(hiG));
+        else if (highType == 1)
+            coeffs = juce::dsp::IIR::Coefficients<float>::makePeakFilter(sr, hiF, hiQ, juce::Decibels::decibelsToGain(hiG));
+        else
+            coeffs = juce::dsp::IIR::Coefficients<float>::makeHighShelf(sr, hiF, hiQ, juce::Decibels::decibelsToGain(hiG));
+        *leftEQ_.get<3>().coefficients = *coeffs;
+        *rightEQ_.get<3>().coefficients = *coeffs;
+    }
 
     // LPF
     *leftEQ_.get<4>().coefficients = *juce::dsp::IIR::Coefficients<float>::makeLowPass(sr, lpf);
@@ -360,6 +422,24 @@ void BZideProcessor::processPre(juce::AudioBuffer<float>& buffer)
         }
     }
 
+    // LOWRIDE sub bass boost (Phase 4)
+    bool lowride = *apvts.getRawParameterValue("pre_lowride") > 0.5f;
+    if (lowride)
+    {
+        int lrDb = static_cast<int>(*apvts.getRawParameterValue("pre_lowride_db"));
+        float boost = (lrDb == 0) ? 2.0f : 4.0f;
+        auto coeffs = juce::dsp::IIR::Coefficients<float>::makeLowShelf(currentSampleRate_, 40.0, 0.707, juce::Decibels::decibelsToGain(boost));
+        *lowrideL_.coefficients = *coeffs;
+        *lowrideR_.coefficients = *coeffs;
+
+        for (int i = 0; i < buffer.getNumSamples(); ++i)
+        {
+            buffer.setSample(0, i, lowrideL_.processSample(buffer.getSample(0, i)));
+            if (buffer.getNumChannels() > 1)
+                buffer.setSample(1, i, lowrideR_.processSample(buffer.getSample(1, i)));
+        }
+    }
+
     // Apply output gain
     buffer.applyGain(outputGain);
 }
@@ -413,6 +493,15 @@ void BZideProcessor::processComp(juce::AudioBuffer<float>& buffer)
     compressor_.setMix(*apvts.getRawParameterValue("comp_mix"));
     int compType = static_cast<int>(*apvts.getRawParameterValue("comp_type"));
     compressor_.setModel(static_cast<BZideCompressor::Model>(compType));
+
+    // Phase 2: detection mode, SC HPF, topology
+    int detectMode = static_cast<int>(*apvts.getRawParameterValue("comp_detect"));
+    compressor_.setDetectMode(static_cast<BZideCompressor::DetectMode>(detectMode));
+    bool scHpf = *apvts.getRawParameterValue("comp_sc_hpf") > 0.5f;
+    compressor_.setScHpfEnabled(scHpf);
+    int topology = static_cast<int>(*apvts.getRawParameterValue("comp_topology"));
+    compressor_.setTopology(static_cast<BZideCompressor::Topology>(topology));
+
     compressor_.process(buffer);
     gainReduction.store(compressor_.getGainReduction());
 
@@ -432,6 +521,12 @@ void BZideProcessor::processGate(juce::AudioBuffer<float>& buffer)
     gate_.setRelease(*apvts.getRawParameterValue("gate_release"));
     int gateType = static_cast<int>(*apvts.getRawParameterValue("gate_type"));
     gate_.setMode(static_cast<BZideGate::Mode>(gateType));
+
+    // Phase 3: fast, peak/RMS, sidechain
+    gate_.setFast(*apvts.getRawParameterValue("gate_fast") > 0.5f);
+    gate_.setPeakDetect(*apvts.getRawParameterValue("gate_peak") > 0.5f);
+    gate_.setScEnabled(*apvts.getRawParameterValue("gate_sc") > 0.5f);
+
     gate_.process(buffer);
 }
 

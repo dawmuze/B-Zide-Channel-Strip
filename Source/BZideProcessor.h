@@ -249,6 +249,9 @@ private:
 
     double currentSampleRate_ = 44100.0;
 
+    // LOWRIDE sub bass boost filters
+    juce::dsp::IIR::Filter<float> lowrideL_, lowrideR_;
+
     void updateEQ();
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(BZideProcessor)

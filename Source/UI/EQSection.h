@@ -7,6 +7,7 @@ class EQSection : public ChannelSection
 public:
     EQSection(juce::AudioProcessorValueTreeState& apvts, BZideProcessor* proc = nullptr)
         : ChannelSection(SectionId::EQ, "EQUALIZER", 140, true),
+          apvtsRef(apvts),
           processorRef(proc)
     {
         eqBypassAtt = std::make_unique<BA>(apvts, "eq_bypass", bypassBtn);
@@ -53,7 +54,16 @@ public:
             b->setRadioGroupId(2001);
             addAndMakeVisible(b);
         }
-        highCurve2.setToggleState(true, juce::dontSendNotification);
+        // Init from param: default High Shelf = 2 → highCurve3
+        {
+            int initHigh = (int)*apvts.getRawParameterValue("eq_high_type");
+            if (initHigh == 0) highCurve1.setToggleState(true, juce::dontSendNotification);
+            else if (initHigh == 1) highCurve2.setToggleState(true, juce::dontSendNotification);
+            else highCurve3.setToggleState(true, juce::dontSendNotification);
+        }
+        highCurve1.onClick = [this]() { if (highCurve1.getToggleState()) apvtsRef.getParameter("eq_high_type")->setValueNotifyingHost(0.0f); };
+        highCurve2.onClick = [this]() { if (highCurve2.getToggleState()) apvtsRef.getParameter("eq_high_type")->setValueNotifyingHost(0.5f); };
+        highCurve3.onClick = [this]() { if (highCurve3.getToggleState()) apvtsRef.getParameter("eq_high_type")->setValueNotifyingHost(1.0f); };
 
         // Curve type buttons — MID (radio group 2002)
         for (auto* b : { &midCurve1, &midCurve2, &midCurve3 }) {
@@ -61,7 +71,15 @@ public:
             b->setRadioGroupId(2002);
             addAndMakeVisible(b);
         }
-        midCurve2.setToggleState(true, juce::dontSendNotification);
+        {
+            int initMid = (int)*apvts.getRawParameterValue("eq_mid_type");
+            if (initMid == 0) midCurve1.setToggleState(true, juce::dontSendNotification);
+            else if (initMid == 1) midCurve2.setToggleState(true, juce::dontSendNotification);
+            else midCurve3.setToggleState(true, juce::dontSendNotification);
+        }
+        midCurve1.onClick = [this]() { if (midCurve1.getToggleState()) apvtsRef.getParameter("eq_mid_type")->setValueNotifyingHost(0.0f); };
+        midCurve2.onClick = [this]() { if (midCurve2.getToggleState()) apvtsRef.getParameter("eq_mid_type")->setValueNotifyingHost(0.5f); };
+        midCurve3.onClick = [this]() { if (midCurve3.getToggleState()) apvtsRef.getParameter("eq_mid_type")->setValueNotifyingHost(1.0f); };
 
         // Curve type buttons — LOW (radio group 2003)
         for (auto* b : { &lowCurve1, &lowCurve2, &lowCurve3 }) {
@@ -69,7 +87,15 @@ public:
             b->setRadioGroupId(2003);
             addAndMakeVisible(b);
         }
-        lowCurve2.setToggleState(true, juce::dontSendNotification);
+        {
+            int initLow = (int)*apvts.getRawParameterValue("eq_low_type");
+            if (initLow == 0) lowCurve1.setToggleState(true, juce::dontSendNotification);
+            else if (initLow == 1) lowCurve2.setToggleState(true, juce::dontSendNotification);
+            else lowCurve3.setToggleState(true, juce::dontSendNotification);
+        }
+        lowCurve1.onClick = [this]() { if (lowCurve1.getToggleState()) apvtsRef.getParameter("eq_low_type")->setValueNotifyingHost(0.0f); };
+        lowCurve2.onClick = [this]() { if (lowCurve2.getToggleState()) apvtsRef.getParameter("eq_low_type")->setValueNotifyingHost(0.5f); };
+        lowCurve3.onClick = [this]() { if (lowCurve3.getToggleState()) apvtsRef.getParameter("eq_low_type")->setValueNotifyingHost(1.0f); };
 
         // Analyzer button
         analyzerBtn.setButtonText("ANALYZER");
@@ -378,6 +404,8 @@ protected:
     }
 
 private:
+    juce::AudioProcessorValueTreeState& apvtsRef;
+
     juce::Slider eqHpf, eqLpf;
     juce::Slider eqLowFreq, eqLowGain, eqLowQ;
     juce::Slider eqMidFreq, eqMidGain, eqMidQ;

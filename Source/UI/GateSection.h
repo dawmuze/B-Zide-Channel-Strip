@@ -47,15 +47,22 @@ public:
         gateReleaseAtt = std::make_unique<SA>(apvts, "gate_release", gateRelease);
         gateRelease.setVisible(false);
 
-        // FAST / PEAK toggle buttons
+        // FAST / PEAK toggle buttons — wired to gate_fast and gate_peak
         fastBtn.setClickingTogglesState(true);
         addAndMakeVisible(fastBtn);
+        fastBtn.setToggleState(*apvts.getRawParameterValue("gate_fast") > 0.5f, juce::dontSendNotification);
+        fastBtn.onClick = [this]() { apvtsRef.getParameter("gate_fast")->setValueNotifyingHost(fastBtn.getToggleState() ? 1.0f : 0.0f); };
+
         peakBtn.setClickingTogglesState(true);
         addAndMakeVisible(peakBtn);
+        peakBtn.setToggleState(*apvts.getRawParameterValue("gate_peak") > 0.5f, juce::dontSendNotification);
+        peakBtn.onClick = [this]() { apvtsRef.getParameter("gate_peak")->setValueNotifyingHost(peakBtn.getToggleState() ? 1.0f : 0.0f); };
 
-        // SC button
+        // SC button — wired to gate_sc
         scBtn.setClickingTogglesState(true);
         addAndMakeVisible(scBtn);
+        scBtn.setToggleState(*apvts.getRawParameterValue("gate_sc") > 0.5f, juce::dontSendNotification);
+        scBtn.onClick = [this]() { apvtsRef.getParameter("gate_sc")->setValueNotifyingHost(scBtn.getToggleState() ? 1.0f : 0.0f); };
     }
 
 protected:

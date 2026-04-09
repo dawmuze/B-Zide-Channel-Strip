@@ -53,29 +53,43 @@ public:
         setupKnob(compMix, "%");
         compMixAtt = std::make_unique<SA>(apvts, "comp_mix", compMix);
 
-        // SC and HPF — two separate toggle buttons
+        // SC and HPF — SC is visual-only, HPF wired to comp_sc_hpf
         scBtn.setClickingTogglesState(true);
         addAndMakeVisible(scBtn);
         hpfBtn.setClickingTogglesState(true);
         addAndMakeVisible(hpfBtn);
+        hpfBtn.setToggleState(*apvts.getRawParameterValue("comp_sc_hpf") > 0.5f, juce::dontSendNotification);
+        hpfBtn.onClick = [this]() { apvtsRef.getParameter("comp_sc_hpf")->setValueNotifyingHost(hpfBtn.getToggleState() ? 1.0f : 0.0f); };
 
-        // F/F and F/B — radio group (one or the other)
+        // F/F and F/B — radio group, wired to comp_topology
         for (auto* b : { &ffBtn, &fbBtn })
         {
             b->setClickingTogglesState(true);
             b->setRadioGroupId(3001);
             addAndMakeVisible(b);
         }
-        ffBtn.setToggleState(true, juce::dontSendNotification); // default Feed-Forward
+        {
+            int initTopo = (int)*apvts.getRawParameterValue("comp_topology");
+            if (initTopo == 0) ffBtn.setToggleState(true, juce::dontSendNotification);
+            else fbBtn.setToggleState(true, juce::dontSendNotification);
+        }
+        ffBtn.onClick = [this]() { if (ffBtn.getToggleState()) apvtsRef.getParameter("comp_topology")->setValueNotifyingHost(0.0f); };
+        fbBtn.onClick = [this]() { if (fbBtn.getToggleState()) apvtsRef.getParameter("comp_topology")->setValueNotifyingHost(1.0f); };
 
-        // RMS and PEAK — radio group
+        // RMS and PEAK — radio group, wired to comp_detect
         for (auto* b : { &rmsBtn, &peakBtn })
         {
             b->setClickingTogglesState(true);
             b->setRadioGroupId(3002);
             addAndMakeVisible(b);
         }
-        rmsBtn.setToggleState(true, juce::dontSendNotification); // default RMS
+        {
+            int initDetect = (int)*apvts.getRawParameterValue("comp_detect");
+            if (initDetect == 0) rmsBtn.setToggleState(true, juce::dontSendNotification);
+            else peakBtn.setToggleState(true, juce::dontSendNotification);
+        }
+        rmsBtn.onClick  = [this]() { if (rmsBtn.getToggleState())  apvtsRef.getParameter("comp_detect")->setValueNotifyingHost(0.0f); };
+        peakBtn.onClick = [this]() { if (peakBtn.getToggleState()) apvtsRef.getParameter("comp_detect")->setValueNotifyingHost(1.0f); };
     }
 
 protected:
