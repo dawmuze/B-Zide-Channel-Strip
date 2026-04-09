@@ -25,13 +25,26 @@ public:
         meterSelOut.setToggleState(true, juce::dontSendNotification);
 
         // Routing buttons: L, STEREO, R (top row) — M, MONO, S (bottom row)
-        for (auto* b : { &routeL, &routeStereo, &routeR, &routeM, &routeMono, &routeS })
+        for (auto* b : { &routeL, &routeStereo, &routeR })
         {
             b->setClickingTogglesState(true);
+            b->setRadioGroupId(9501);
+            b->setColour(juce::TextButton::buttonOnColourId, juce::Colour(0xFF8B1515));
+            addAndMakeVisible(b);
+        }
+        for (auto* b : { &routeM, &routeMono, &routeS })
+        {
+            b->setClickingTogglesState(true);
+            b->setRadioGroupId(9502);
             b->setColour(juce::TextButton::buttonOnColourId, juce::Colour(0xFF8B1515));
             addAndMakeVisible(b);
         }
         routeStereo.setToggleState(true, juce::dontSendNotification);
+
+        // Wire routing buttons to out_mode parameter
+        routeStereo.onClick = [this, &apvts]() { if (routeStereo.getToggleState()) apvts.getParameter("out_mode")->setValueNotifyingHost(0.0f); };
+        routeMono.onClick = [this, &apvts]() { if (routeMono.getToggleState()) apvts.getParameter("out_mode")->setValueNotifyingHost(0.5f); };
+        routeS.onClick = [this, &apvts]() { if (routeS.getToggleState()) apvts.getParameter("out_mode")->setValueNotifyingHost(1.0f); };
 
         // L2 Limiter — Threshold fader (invisible thumb, painted by L2 draw code)
         limThreshFader.setSliderStyle(juce::Slider::LinearVertical);
@@ -99,15 +112,17 @@ public:
         setupFader(outFaderR);
         outFaderR.setRange(-60.0, 12.0, 0.1);
         outFaderL.onValueChange = [this]() {
-            outFaderR.setValue(outFaderL.getValue(), juce::dontSendNotification);
+            if (linkBtn.getToggleState())
+                outFaderR.setValue(outFaderL.getValue(), juce::dontSendNotification);
         };
 
         // Output mode combo (hidden — driven by routing buttons)
         outMode.addItemList({"STEREO", "MONO", "M/S"}, 1);
         outModeAtt = std::make_unique<CA>(apvts, "out_mode", outMode);
 
-        // Link button
+        // Link button — default ON to keep L/R linked
         linkBtn.setClickingTogglesState(true);
+        linkBtn.setToggleState(true, juce::dontSendNotification);
         linkBtn.setColour(juce::TextButton::buttonOnColourId, juce::Colour(0xFF8B1515));
         addAndMakeVisible(linkBtn);
     }
@@ -134,8 +149,9 @@ public:
         inFaderL.setValue(processor.inputLevelL.load(), juce::dontSendNotification);
         inFaderR.setValue(processor.inputLevelR.load(), juce::dontSendNotification);
 
-        // Mirror output fader R from L
-        outFaderR.setValue(outFaderL.getValue(), juce::dontSendNotification);
+        // Mirror output fader R from L (only when linked)
+        if (linkBtn.getToggleState())
+            outFaderR.setValue(outFaderL.getValue(), juce::dontSendNotification);
 
         // GR smoothing from limiter
         float grTarget = processor.getLimiterGR();

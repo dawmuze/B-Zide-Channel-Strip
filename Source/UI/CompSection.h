@@ -53,13 +53,21 @@ public:
         setupKnob(compMix, "%");
         compMixAtt = std::make_unique<SA>(apvts, "comp_mix", compMix);
 
-        // SC and HPF — SC is visual-only, HPF wired to comp_sc_hpf
+        // SC and HPF — both toggle comp_sc_hpf (SC = sidechain HPF enable)
         scBtn.setClickingTogglesState(true);
         addAndMakeVisible(scBtn);
+        scBtn.setToggleState(*apvts.getRawParameterValue("comp_sc_hpf") > 0.5f, juce::dontSendNotification);
+        scBtn.onClick = [this]() {
+            apvtsRef.getParameter("comp_sc_hpf")->setValueNotifyingHost(scBtn.getToggleState() ? 1.0f : 0.0f);
+            hpfBtn.setToggleState(scBtn.getToggleState(), juce::dontSendNotification);
+        };
         hpfBtn.setClickingTogglesState(true);
         addAndMakeVisible(hpfBtn);
         hpfBtn.setToggleState(*apvts.getRawParameterValue("comp_sc_hpf") > 0.5f, juce::dontSendNotification);
-        hpfBtn.onClick = [this]() { apvtsRef.getParameter("comp_sc_hpf")->setValueNotifyingHost(hpfBtn.getToggleState() ? 1.0f : 0.0f); };
+        hpfBtn.onClick = [this]() {
+            apvtsRef.getParameter("comp_sc_hpf")->setValueNotifyingHost(hpfBtn.getToggleState() ? 1.0f : 0.0f);
+            scBtn.setToggleState(hpfBtn.getToggleState(), juce::dontSendNotification);
+        };
 
         // F/F and F/B — radio group, wired to comp_topology
         for (auto* b : { &ffBtn, &fbBtn })

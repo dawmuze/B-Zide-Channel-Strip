@@ -252,6 +252,9 @@ private:
     // LOWRIDE sub bass boost filters
     juce::dsp::IIR::Filter<float> lowrideL_, lowrideR_;
 
+    // Pre-section LPF filters
+    juce::dsp::IIR::Filter<float> preLpfL_, preLpfR_;
+
     void updateEQ();
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(BZideProcessor)

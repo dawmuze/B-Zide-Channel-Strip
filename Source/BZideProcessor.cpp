@@ -146,6 +146,9 @@ juce::AudioProcessorValueTreeState::ParameterLayout BZideProcessor::createParame
     layout.add(std::make_unique<juce::AudioParameterBool>(juce::ParameterID("pre_lowride", 1), "Pre Lowride", false));
     layout.add(std::make_unique<juce::AudioParameterChoice>(juce::ParameterID("pre_lowride_db", 1), "Lowride Amount", juce::StringArray{"2","4"}, 0));
 
+    // ── Master Bypass (IN button) ──
+    layout.add(std::make_unique<juce::AudioParameterBool>(juce::ParameterID("master_bypass", 1), "Master Bypass", false));
+
     return layout;
 }
 
@@ -177,6 +180,13 @@ void BZideProcessor::prepareToPlay(double sampleRate, int samplesPerBlock)
     lowrideL_.coefficients = lrCoeffs;
     lowrideR_.coefficients = lrCoeffs;
 
+    // Pre LPF filters
+    preLpfL_.reset();
+    preLpfR_.reset();
+    auto preLpfCoeffs = juce::dsp::IIR::Coefficients<float>::makeLowPass(sampleRate, 20000.0f);
+    preLpfL_.coefficients = preLpfCoeffs;
+    preLpfR_.coefficients = preLpfCoeffs;
+
     updateEQ();
 }
 
@@ -203,6 +213,15 @@ void BZideProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiBu
         float rmsR = buffer.getNumChannels() > 1 ? buffer.getRMSLevel(1, 0, buffer.getNumSamples()) : rmsL;
         inputLevelL.store(juce::Decibels::gainToDecibels(rmsL, -100.0f));
         inputLevelR.store(juce::Decibels::gainToDecibels(rmsR, -100.0f));
+    }
+
+    // Master bypass (IN button)
+    if (*apvts.getRawParameterValue("master_bypass") > 0.5f)
+    {
+        buffer.clear();
+        outputLevelL.store(-100.0f);
+        outputLevelR.store(-100.0f);
+        return;
     }
 
     // Process DSP sections in user-defined order (6 draggable sections)
@@ -319,12 +338,19 @@ void BZideProcessor::updateEQ()
     int midType = static_cast<int>(*apvts.getRawParameterValue("eq_mid_type"));
     int highType = static_cast<int>(*apvts.getRawParameterValue("eq_high_type"));
 
+    int hpfSlope = static_cast<int>(*apvts.getRawParameterValue("pre_hpf_slope"));
+    int lpfSlope = static_cast<int>(*apvts.getRawParameterValue("pre_lpf_slope"));
+
     auto sr = currentSampleRate_;
     if (sr <= 0) return;
 
-    // HPF
-    *leftEQ_.get<0>().coefficients = *juce::dsp::IIR::Coefficients<float>::makeHighPass(sr, hpf);
-    *rightEQ_.get<0>().coefficients = *juce::dsp::IIR::Coefficients<float>::makeHighPass(sr, hpf);
+    // HPF — slope controls Q: 0=6dB(gentle), 1=12dB(Butterworth), 2=18dB(steep)
+    {
+        float hpfQ = (hpfSlope == 0) ? 0.5f : (hpfSlope == 2) ? 1.3f : 0.707f;
+        auto hpfCoeffs = juce::dsp::IIR::Coefficients<float>::makeHighPass(sr, hpf, hpfQ);
+        *leftEQ_.get<0>().coefficients = *hpfCoeffs;
+        *rightEQ_.get<0>().coefficients = *hpfCoeffs;
+    }
 
     // Low band — dynamic curve type
     {
@@ -365,9 +391,13 @@ void BZideProcessor::updateEQ()
         *rightEQ_.get<3>().coefficients = *coeffs;
     }
 
-    // LPF
-    *leftEQ_.get<4>().coefficients = *juce::dsp::IIR::Coefficients<float>::makeLowPass(sr, lpf);
-    *rightEQ_.get<4>().coefficients = *juce::dsp::IIR::Coefficients<float>::makeLowPass(sr, lpf);
+    // LPF — slope controls Q: 0=6dB(gentle), 1=12dB(Butterworth), 2=18dB(steep)
+    {
+        float lpfQ = (lpfSlope == 0) ? 0.5f : (lpfSlope == 2) ? 1.3f : 0.707f;
+        auto lpfCoeffs = juce::dsp::IIR::Coefficients<float>::makeLowPass(sr, lpf, lpfQ);
+        *leftEQ_.get<4>().coefficients = *lpfCoeffs;
+        *rightEQ_.get<4>().coefficients = *lpfCoeffs;
+    }
 }
 
 void BZideProcessor::setSectionOrder(const std::array<int, 6>& order)
@@ -437,6 +467,22 @@ void BZideProcessor::processPre(juce::AudioBuffer<float>& buffer)
             buffer.setSample(0, i, lowrideL_.processSample(buffer.getSample(0, i)));
             if (buffer.getNumChannels() > 1)
                 buffer.setSample(1, i, lowrideR_.processSample(buffer.getSample(1, i)));
+        }
+    }
+
+    // Pre LPF — only apply if not fully open
+    float lpfFreq = *apvts.getRawParameterValue("pre_lpf");
+    if (lpfFreq < 19999.0f)
+    {
+        auto coeffs = juce::dsp::IIR::Coefficients<float>::makeLowPass(currentSampleRate_, lpfFreq);
+        *preLpfL_.coefficients = *coeffs;
+        *preLpfR_.coefficients = *coeffs;
+
+        for (int i = 0; i < buffer.getNumSamples(); ++i)
+        {
+            buffer.setSample(0, i, preLpfL_.processSample(buffer.getSample(0, i)));
+            if (buffer.getNumChannels() > 1)
+                buffer.setSample(1, i, preLpfR_.processSample(buffer.getSample(1, i)));
         }
     }
 

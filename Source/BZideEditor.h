@@ -447,7 +447,7 @@ private:
     // Layout constants
     static constexpr int kSectionWidth = 140;
     static constexpr int kOutputWidth = 340;
-    static constexpr int kTotalHeight = 800;
+    static constexpr int kTotalHeight = 848; // 26 top bar + 800 sections + 22 bottom bar
 
     // Section components
     std::unique_ptr<PreSection> preSection;
@@ -465,7 +465,7 @@ private:
     int abState = 0; // 0=A, 1=B
     bool inActive = true; // IN = plugin bypass toggle
     juce::XmlElement abSlotA {"A"}, abSlotB {"B"};
-    juce::Rectangle<int> inBtn, aBtn, bBtn, copyBtn, pasteBtn, presetNameArea, prevPresetBtn, nextPresetBtn, menuBtn;
+    juce::Rectangle<int> inBtn, aBtn, bBtn, copyBtn, pasteBtn, presetNameArea, prevPresetBtn, nextPresetBtn, menuBtn, infoBtn, buyBtn;
     void saveCurrentToSlot(juce::XmlElement& slot);
     void loadSlotToCurrent(const juce::XmlElement& slot);
 

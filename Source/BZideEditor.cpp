@@ -261,6 +261,8 @@ void BZideEditor::mouseDown(const juce::MouseEvent& e)
     }
     if (inBtn.expanded(2).contains(pos))
     {
+        auto* p = processor.getAPVTS().getParameter("master_bypass");
+        p->setValueNotifyingHost(inActive ? 1.0f : 0.0f); // toggle: IN was active, now bypass
         inActive = !inActive;
         repaint();
         return;
@@ -295,6 +297,16 @@ void BZideEditor::mouseDown(const juce::MouseEvent& e)
         repaint();
         return;
     }
+    if (buyBtn.expanded(4).contains(pos))
+    {
+        juce::URL("https://dawmuze.com/purchase").launchInDefaultBrowser();
+        return;
+    }
+    if (infoBtn.expanded(4).contains(pos))
+    {
+        juce::URL("https://dawmuze.com/products/bzide-channel-strip").launchInDefaultBrowser();
+        return;
+    }
 }
 
 void BZideEditor::timerCallback()
@@ -311,117 +323,205 @@ void BZideEditor::paint(juce::Graphics& g)
 {
     // Black background behind everything
     g.fillAll(juce::Colours::black);
-
-    // Trial banner
-    auto status = processor.getLicenseStatus();
-    if (status != LicenseValidator::Status::Active)
-    {
-        juce::String text;
-        juce::Colour color;
-        switch (status)
-        {
-            case LicenseValidator::Status::Trial:
-                text = "Trial: " + juce::String(processor.getTrialDaysRemaining()) + " days remaining";
-                color = juce::Colour(0xFFf59e0b); break;
-            case LicenseValidator::Status::Expired:
-                text = "Trial Expired";
-                color = juce::Colour(0xFFDD2200); break;
-            default:
-                text = "Not Activated";
-                color = juce::Colour(0xFF666666); break;
-        }
-        auto banner = getLocalBounds().removeFromBottom(20);
-        g.setColour(juce::Colour(0xDD000000));
-        g.fillRect(banner);
-        g.setColour(color);
-        g.setFont(juce::Font(juce::FontOptions(11.0f)).boldened());
-        g.drawText(text, banner, juce::Justification::centred);
-    }
 }
 
 void BZideEditor::paintOverChildren(juce::Graphics& g)
 {
-    // ── Bottom Preset/A/B Bar ──
+    // ── Bottom License/Status Bar (KI-2A style) ──
     {
-        auto barArea = juce::Rectangle<int>(0, getHeight() - 24, getWidth(), 24);
-        g.setColour(juce::Colour(0xF0101014));
-        g.fillRect(barArea);
-        g.setColour(juce::Colour(0xFF2A2A30));
-        g.drawHorizontalLine(barArea.getY(), 0, (float)getWidth());
+        int botH = 22;
+        auto barArea = juce::Rectangle<int>(0, getHeight() - botH, getWidth(), botH);
 
-        float bh = 16.0f;
+        // Dark gradient background
+        juce::ColourGradient botGrad(
+            juce::Colour(0xFF0E0E12), 0.0f, (float)barArea.getY(),
+            juce::Colour(0xFF18181C), 0.0f, (float)barArea.getBottom(), false);
+        g.setGradientFill(botGrad);
+        g.fillRect(barArea);
+
+        // Top separator
+        g.setColour(juce::Colour(0xFF333338));
+        g.drawHorizontalLine(barArea.getY(), 0.0f, (float)getWidth());
+
+        // Left side — Status LED + text
+        float ledX = 12.0f;
+        float ledCY = (float)barArea.getCentreY();
+
+        auto status = processor.getLicenseStatus();
+
+        // Green LED dot
+        juce::Colour ledCol;
+        switch (status)
+        {
+            case LicenseValidator::Status::Active: ledCol = juce::Colour(0xFF44DD44); break;
+            case LicenseValidator::Status::Trial:  ledCol = juce::Colour(0xFF44DD44); break;
+            case LicenseValidator::Status::Expired: ledCol = juce::Colour(0xFFef4444); break;
+            default: ledCol = juce::Colour(0xFF666666); break;
+        }
+        g.setColour(ledCol.withAlpha(0.15f));
+        g.fillEllipse(ledX - 5.0f, ledCY - 5.0f, 10.0f, 10.0f);
+        g.setColour(ledCol);
+        g.fillEllipse(ledX - 3.0f, ledCY - 3.0f, 6.0f, 6.0f);
+
+        // Status text
+        float textX = ledX + 8.0f;
+        if (status == LicenseValidator::Status::Trial)
+        {
+            g.setColour(juce::Colour(0xFFf97316));
+            g.setFont(juce::Font(juce::FontOptions(10.0f)).boldened());
+            g.drawText("trial", (int)textX, barArea.getY(), 30, botH, juce::Justification::centredLeft);
+            g.setColour(juce::Colour(0xFF888890));
+            g.setFont(juce::Font(juce::FontOptions(10.0f)));
+            g.drawText("- " + juce::String(processor.getTrialDaysRemaining()) + " days",
+                       (int)(textX + 32), barArea.getY(), 80, botH, juce::Justification::centredLeft);
+        }
+        else if (status == LicenseValidator::Status::Active)
+        {
+            g.setColour(juce::Colour(0xFF44DD44));
+            g.setFont(juce::Font(juce::FontOptions(10.0f)).boldened());
+            g.drawText("licensed", (int)textX, barArea.getY(), 60, botH, juce::Justification::centredLeft);
+        }
+        else if (status == LicenseValidator::Status::Expired)
+        {
+            g.setColour(juce::Colour(0xFFef4444));
+            g.setFont(juce::Font(juce::FontOptions(10.0f)).boldened());
+            g.drawText("expired", (int)textX, barArea.getY(), 60, botH, juce::Justification::centredLeft);
+        }
+        else
+        {
+            g.setColour(juce::Colour(0xFF888890));
+            g.setFont(juce::Font(juce::FontOptions(10.0f)).boldened());
+            g.drawText("not activated", (int)textX, barArea.getY(), 90, botH, juce::Justification::centredLeft);
+        }
+
+        // Right side — BUY button
+        int buyW = 36, buyH2 = 14;
+        int buyX = getWidth() - buyW - 8;
+        int buyY = barArea.getCentreY() - buyH2 / 2;
+        auto buyR = juce::Rectangle<float>((float)buyX, (float)buyY, (float)buyW, (float)buyH2);
+        g.setColour(juce::Colour(0xFF8B1515).withAlpha(0.4f));
+        g.fillRoundedRectangle(buyR, 2.0f);
+        g.setColour(juce::Colour(0xFFDD2200));
+        g.drawRoundedRectangle(buyR, 2.0f, 0.8f);
+        g.setColour(juce::Colours::white);
+        g.setFont(juce::Font(juce::FontOptions(9.0f)).boldened());
+        g.drawText("BUY", buyR.toNearestInt(), juce::Justification::centred);
+        buyBtn = buyR.toNearestInt();
+
+        // INFO button (left of BUY)
+        int infoX = buyX - buyW - 4;
+        auto infoR = juce::Rectangle<float>((float)infoX, (float)buyY, (float)buyW, (float)buyH2);
+        g.setColour(juce::Colour(0xFF222228));
+        g.fillRoundedRectangle(infoR, 2.0f);
+        g.setColour(juce::Colour(0xFF444448));
+        g.drawRoundedRectangle(infoR, 2.0f, 0.6f);
+        g.setColour(juce::Colour(0xFF888890));
+        g.setFont(juce::Font(juce::FontOptions(9.0f)).boldened());
+        g.drawText("INFO", infoR.toNearestInt(), juce::Justification::centred);
+        infoBtn = infoR.toNearestInt();
+    }
+
+    // ── Top Preset/A/B Bar (KI-2A style) ──
+    {
+        auto barArea = juce::Rectangle<int>(0, 0, getWidth(), 26);
+
+        // Dark gradient background
+        juce::ColourGradient topGrad(
+            juce::Colour(0xFF18181C), 0.0f, 0.0f,
+            juce::Colour(0xFF0E0E12), 0.0f, 26.0f, false);
+        g.setGradientFill(topGrad);
+        g.fillRect(barArea);
+
+        // Bottom separator
+        g.setColour(juce::Colour(0xFF333338));
+        g.drawHorizontalLine(barArea.getBottom() - 1, 0, (float)getWidth());
+
+        float bh = 18.0f;
         float by = (float)barArea.getY() + ((float)barArea.getHeight() - bh) / 2.0f;
 
         auto drawBarBtn = [&](juce::Rectangle<float> r, const juce::String& text, bool active, juce::Colour activeCol) {
             if (active) {
+                g.setColour(activeCol.withAlpha(0.25f));
+                g.fillRoundedRectangle(r, 3.0f);
                 g.setColour(activeCol);
-                g.fillRoundedRectangle(r, 3.0f);
-                g.setColour(juce::Colours::white);
+                g.drawRoundedRectangle(r, 3.0f, 1.0f);
+                g.setColour(activeCol);
             } else {
-                g.setColour(juce::Colour(0xFF333338));
+                g.setColour(juce::Colour(0xFF222228));
                 g.fillRoundedRectangle(r, 3.0f);
-                g.setColour(juce::Colour(0xFF888888));
+                g.setColour(juce::Colour(0xFF444448));
+                g.drawRoundedRectangle(r, 3.0f, 0.6f);
+                g.setColour(juce::Colour(0xFF888890));
             }
-            g.setFont(juce::Font(juce::FontOptions(9.0f)).boldened());
+            g.setFont(juce::Font(juce::FontOptions(10.0f)).boldened());
             g.drawText(text, r.toNearestInt(), juce::Justification::centred);
         };
 
-        float x = 8.0f;
         float gap = 3.0f;
+        float w = (float)getWidth();
 
-        // Prev preset
-        auto prevR = juce::Rectangle<float>(x, by, 18.0f, bh);
-        drawBarBtn(prevR, "<", false, juce::Colour(0xFF666666));
+        // ── LEFT: < > nav arrows ──
+        float lx = 8.0f;
+        auto prevR = juce::Rectangle<float>(lx, by, 22.0f, bh);
+        drawBarBtn(prevR, "<", false, juce::Colour(0xFF555558));
         prevPresetBtn = prevR.toNearestInt();
-        x += 18.0f + gap;
+        lx += 22.0f + gap;
 
-        // Preset name
-        float presetW = 120.0f;
-        auto nameR = juce::Rectangle<float>(x, by, presetW, bh);
-        g.setColour(juce::Colour(0xFF1A1A1E));
+        auto nextR = juce::Rectangle<float>(lx, by, 22.0f, bh);
+        drawBarBtn(nextR, ">", false, juce::Colour(0xFF555558));
+        nextPresetBtn = nextR.toNearestInt();
+
+        // ── CENTER: Preset name ──
+        float presetW = 180.0f;
+        float presetX = (w - presetW) / 2.0f;
+        auto nameR = juce::Rectangle<float>(presetX, by, presetW, bh);
+        g.setColour(juce::Colour(0xFF111115));
         g.fillRoundedRectangle(nameR, 3.0f);
-        g.setColour(juce::Colour(0xFFCCCCCC));
-        g.setFont(juce::Font(juce::FontOptions(9.0f)));
+        g.setColour(juce::Colour(0xFF3A3A40));
+        g.drawRoundedRectangle(nameR, 3.0f, 0.6f);
+        g.setColour(juce::Colours::white);
+        g.setFont(juce::Font(juce::FontOptions(11.0f)).boldened());
         juce::String pName = (currentPreset >= 0 && currentPreset < (int)presetNames.size())
             ? presetNames[(size_t)currentPreset].name : "Init";
         g.drawText(pName, nameR.toNearestInt(), juce::Justification::centred);
         presetNameArea = nameR.toNearestInt();
-        x += presetW + gap;
 
-        // Next preset
-        auto nextR = juce::Rectangle<float>(x, by, 18.0f, bh);
-        drawBarBtn(nextR, ">", false, juce::Colour(0xFF666666));
-        nextPresetBtn = nextR.toNearestInt();
-        x += 18.0f + 12.0f;
-
-        // IN button
-        auto inR = juce::Rectangle<float>(x, by, 24.0f, bh);
-        drawBarBtn(inR, "IN", inActive, juce::Colour(0xFF44BB44));
-        inBtn = inR.toNearestInt();
-        x += 24.0f + gap;
-
-        // A button
-        auto aR = juce::Rectangle<float>(x, by, 22.0f, bh);
-        drawBarBtn(aR, "A", abState == 0, juce::Colour(0xFF4488FF));
-        aBtn = aR.toNearestInt();
-        x += 22.0f + gap;
-
-        // B button
-        auto bR = juce::Rectangle<float>(x, by, 22.0f, bh);
-        drawBarBtn(bR, "B", abState == 1, juce::Colour(0xFF4488FF));
-        bBtn = bR.toNearestInt();
-        x += 22.0f + 8.0f;
-
-        // COPY
-        auto copyR = juce::Rectangle<float>(x, by, 36.0f, bh);
-        drawBarBtn(copyR, "COPY", false, juce::Colour(0xFF666666));
-        copyBtn = copyR.toNearestInt();
-        x += 36.0f + gap;
+        // ── RIGHT: IN, A, B, COPY, PASTE (right-to-left) ──
+        float rx = w - 8.0f;
 
         // PASTE
-        auto pasteR = juce::Rectangle<float>(x, by, 38.0f, bh);
-        drawBarBtn(pasteR, "PASTE", false, juce::Colour(0xFF666666));
+        rx -= 36.0f;
+        auto pasteR = juce::Rectangle<float>(rx, by, 36.0f, bh);
+        drawBarBtn(pasteR, "PASTE", false, juce::Colour(0xFF555558));
         pasteBtn = pasteR.toNearestInt();
+
+        // COPY
+        rx -= 36.0f + gap;
+        auto copyR = juce::Rectangle<float>(rx, by, 36.0f, bh);
+        drawBarBtn(copyR, "COPY", false, juce::Colour(0xFF555558));
+        copyBtn = copyR.toNearestInt();
+
+        rx -= 10.0f;
+
+        // B
+        rx -= 22.0f;
+        auto bR = juce::Rectangle<float>(rx, by, 22.0f, bh);
+        drawBarBtn(bR, "B", abState == 1, juce::Colour(0xFF4488FF));
+        bBtn = bR.toNearestInt();
+
+        // A
+        rx -= 22.0f + gap;
+        auto aR = juce::Rectangle<float>(rx, by, 22.0f, bh);
+        drawBarBtn(aR, "A", abState == 0, juce::Colour(0xFF4488FF));
+        aBtn = aR.toNearestInt();
+
+        rx -= 10.0f;
+
+        // IN
+        rx -= 24.0f;
+        auto inR = juce::Rectangle<float>(rx, by, 24.0f, bh);
+        drawBarBtn(inR, "IN", inActive, juce::Colour(0xFF44DD44));
+        inBtn = inR.toNearestInt();
     }
 }
 
@@ -429,14 +529,17 @@ void BZideEditor::resized()
 {
     int x = 0;
 
+    // Top bar = 26px, sections start below
+    int topBarH = 26;
+
     // Layout the 6 draggable sections in current order
     for (int i = 0; i < 6; ++i)
     {
         auto* sec = getSectionById(draggableOrder[(size_t)i]);
-        sec->setBounds(x, 0, kSectionWidth, kTotalHeight);
+        sec->setBounds(x, topBarH, kSectionWidth, kTotalHeight - topBarH);
         x += kSectionWidth;
     }
 
     // OUTPUT section (always last)
-    outputSection->setBounds(x, 0, kOutputWidth, kTotalHeight);
+    outputSection->setBounds(x, topBarH, kOutputWidth, kTotalHeight - topBarH);
 }
