@@ -290,5 +290,8 @@ private:
     float bypassGain_ = 1.0f;      // 1.0 = processing, 0.0 = bypassed
     bool wasBypassed_ = false;
 
+    // License fade (~50ms crossfade to avoid pop on license lock/expire)
+    float licenseFadeGain_ = 1.0f;  // 1.0 = licensed, 0.0 = locked
+
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(BZideProcessor)
 };

@@ -51,14 +51,14 @@ public:
     //--------------------------------------------------------------------------
     // Status queries
     //--------------------------------------------------------------------------
-    Status getStatus() const { return status_; }
-    bool isLicensed() const { return status_ == Status::Active || status_ == Status::OfflineGrace; }
-    bool isTrial() const { return status_ == Status::Trial; }
+    Status getStatus() const { return status_.load(); }
+    bool isLicensed() const { auto s = status_.load(); return s == Status::Active || s == Status::OfflineGrace; }
+    bool isTrial() const { return status_.load() == Status::Trial; }
     int getTrialDaysRemaining() const { return trialDaysRemaining_; }
     juce::String getLicenseKey() const { return licenseKey_; }
     juce::String getStatusString() const
     {
-        switch (status_)
+        switch (status_.load())
         {
             case Status::NotActivated: return "Not Activated";
             case Status::Active:       return "Active";
@@ -496,7 +496,7 @@ private:
 
         auto json = juce::DynamicObject::Ptr(new juce::DynamicObject());
         json->setProperty("key", licenseKey_);
-        json->setProperty("status", static_cast<int>(status_));
+        json->setProperty("status", static_cast<int>(status_.load()));
         json->setProperty("lastValidation", lastValidation_.toISO8601(true));
         json->setProperty("machineId", getMachineId());
 
@@ -605,7 +605,7 @@ private:
     //--------------------------------------------------------------------------
     juce::String serverUrl_ = "https://dawmuze.com";
     juce::String licenseKey_;
-    Status status_ = Status::NotActivated;
+    std::atomic<Status> status_ { Status::NotActivated };
     juce::Time lastValidation_;
     juce::Time trialStartDate_;
     int trialDaysRemaining_ = 0;

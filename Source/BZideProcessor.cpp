@@ -239,15 +239,29 @@ void BZideProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiBu
             std::swap(insertSlots_[swapA], insertSlots_[swapB]);
     }
 
-    // License check
-    auto status = getLicenseStatus();
-    if (!isLicensed() && !isTrial() &&
-        (status == LicenseValidator::Status::Expired ||
-         status == LicenseValidator::Status::Revoked ||
-         status == LicenseValidator::Status::Locked))
+    // License check — with 50ms crossfade to avoid pop on status transition
+    auto licStatus = getLicenseStatus();
+    bool licenseLocked = !isLicensed() && !isTrial() &&
+        (licStatus == LicenseValidator::Status::Expired ||
+         licStatus == LicenseValidator::Status::Revoked ||
+         licStatus == LicenseValidator::Status::Locked);
+
+    float licTarget = licenseLocked ? 0.0f : 1.0f;
+    if (std::abs(licenseFadeGain_ - licTarget) > 0.001f || licenseLocked)
     {
-        buffer.clear();
-        return;
+        float fadeStep = 1.0f / (float)(currentSampleRate_ * 0.050); // 50ms fade
+        for (int i = 0; i < buffer.getNumSamples(); ++i)
+        {
+            if (licenseFadeGain_ > licTarget)
+                licenseFadeGain_ = juce::jmax(licenseFadeGain_ - fadeStep, 0.0f);
+            else if (licenseFadeGain_ < licTarget)
+                licenseFadeGain_ = juce::jmin(licenseFadeGain_ + fadeStep, 1.0f);
+
+            for (int ch = 0; ch < buffer.getNumChannels(); ++ch)
+                buffer.setSample(ch, i, buffer.getSample(ch, i) * licenseFadeGain_);
+        }
+        if (licenseFadeGain_ <= 0.0f)
+            return; // fully faded out, skip remaining processing
     }
 
     // Input metering
