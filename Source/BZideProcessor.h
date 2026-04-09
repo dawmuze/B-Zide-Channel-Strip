@@ -280,6 +280,7 @@ private:
     std::atomic<int> pendingSwapA_{-1}, pendingSwapB_{-1};
 
     // Previous gain values for smooth ramping (avoid clicks on automation)
+    float prevInFaderGain_ = 1.0f;
     float prevInputGain_ = 1.0f;
     float prevOutputGain_ = 1.0f;
     float prevDsOutputGain_ = 1.0f;

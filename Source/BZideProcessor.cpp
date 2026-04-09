@@ -108,6 +108,8 @@ juce::AudioProcessorValueTreeState::ParameterLayout BZideProcessor::createParame
         juce::NormalisableRange<float>(10.0f, 2000.0f, 1.0f, 0.3f), 200.0f));
 
     // ── OUTPUT Section ──
+    layout.add(std::make_unique<juce::AudioParameterFloat>(juce::ParameterID("in_fader", 1), "Input Fader",
+        juce::NormalisableRange<float>(-60.0f, 12.0f, 0.1f), 0.0f));
     layout.add(std::make_unique<juce::AudioParameterFloat>(juce::ParameterID("out_fader", 1), "Output Fader",
         juce::NormalisableRange<float>(-60.0f, 12.0f, 0.1f), 0.0f));
     layout.add(std::make_unique<juce::AudioParameterBool>(juce::ParameterID("out_limiter", 1), "Limiter On", false));
@@ -277,7 +279,13 @@ void BZideProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiBu
             return; // fully faded out, skip remaining processing
     }
 
-    // Input metering
+    // ── INPUT FADER (apply input gain before anything) ──
+    float inFaderDb = *apvts.getRawParameterValue("in_fader");
+    float inFaderGain = juce::Decibels::decibelsToGain(inFaderDb);
+    buffer.applyGainRamp(0, buffer.getNumSamples(), prevInFaderGain_, inFaderGain);
+    prevInFaderGain_ = inFaderGain;
+
+    // Input metering (after input fader)
     {
         float rmsL = buffer.getRMSLevel(0, 0, buffer.getNumSamples());
         float rmsR = buffer.getNumChannels() > 1 ? buffer.getRMSLevel(1, 0, buffer.getNumSamples()) : rmsL;

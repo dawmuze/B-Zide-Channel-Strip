@@ -108,16 +108,13 @@ public:
             f.setPaintingIsUnclipped(true); // thumb can paint outside bounds
             addAndMakeVisible(f);
         };
-        // INPUT faders (linked — moving one moves the other)
+        // INPUT faders (L linked to APVTS, R mirrors L — always linked)
         setupFader(inFaderL);
-        inFaderL.setRange(-60.0, 12.0, 0.1);
+        inFaderAtt = std::make_unique<SA>(apvts, "in_fader", inFaderL);
         setupFader(inFaderR);
         inFaderR.setRange(-60.0, 12.0, 0.1);
         inFaderL.onValueChange = [this]() {
             inFaderR.setValue(inFaderL.getValue(), juce::dontSendNotification);
-        };
-        inFaderR.onValueChange = [this]() {
-            inFaderL.setValue(inFaderR.getValue(), juce::dontSendNotification);
         };
         // OUTPUT faders (L linked to APVTS, R mirrors L)
         setupFader(outFaderL);
@@ -760,7 +757,7 @@ private:
     using SA = juce::AudioProcessorValueTreeState::SliderAttachment;
     using BA = juce::AudioProcessorValueTreeState::ButtonAttachment;
     using CA = juce::AudioProcessorValueTreeState::ComboBoxAttachment;
-    std::unique_ptr<SA> outFaderAtt, outFaderRAtt, limThreshAtt, limCeilingAtt, limReleaseAtt;
+    std::unique_ptr<SA> inFaderAtt, outFaderAtt, outFaderRAtt, limThreshAtt, limCeilingAtt, limReleaseAtt;
     std::unique_ptr<BA> limiterBtnAtt, phaseLAtt, phaseRAtt;
     std::unique_ptr<CA> outModeAtt;
 
