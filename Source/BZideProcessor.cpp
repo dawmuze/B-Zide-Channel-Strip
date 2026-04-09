@@ -350,18 +350,7 @@ void BZideProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiBu
         }
     }
 
-    // Phase 3A: Soft-clip protection between sections and output
-    {
-        for (int ch = 0; ch < buffer.getNumChannels(); ++ch)
-            for (int i = 0; i < buffer.getNumSamples(); ++i)
-            {
-                float s = buffer.getSample(ch, i);
-                if (std::abs(s) > 4.0f)
-                    buffer.setSample(ch, i, std::tanh(s * 0.25f) * 4.0f);
-            }
-    }
-
-    // ── PHASE INVERT ──
+    // ── PHASE INVERT (vectorized, no per-sample loop) ──
     {
         bool phaseL = *apvts.getRawParameterValue("out_phase_l") > 0.5f;
         bool phaseR = *apvts.getRawParameterValue("out_phase_r") > 0.5f;
@@ -445,25 +434,27 @@ void BZideProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiBu
         }
     }
 
-    // Push samples into FFT FIFO for spectrum analyzer
-    for (int i = 0; i < buffer.getNumSamples(); ++i)
-        pushNextSampleIntoFifo(buffer.getSample(0, i));
-
-    // Output metering
+    // Output metering + sanitize + FFT push (single combined pass)
     {
         float rmsL = buffer.getRMSLevel(0, 0, buffer.getNumSamples());
         float rmsR = buffer.getNumChannels() > 1 ? buffer.getRMSLevel(1, 0, buffer.getNumSamples()) : rmsL;
         outputLevelL.store(juce::Decibels::gainToDecibels(rmsL, -100.0f));
         outputLevelR.store(juce::Decibels::gainToDecibels(rmsR, -100.0f));
-    }
 
-    // Sanitize output
-    for (int ch = 0; ch < buffer.getNumChannels(); ++ch)
+        // Sanitize + FFT push in one loop (saves iterating buffer twice)
         for (int i = 0; i < buffer.getNumSamples(); ++i)
         {
-            float s = buffer.getSample(ch, i);
-            buffer.setSample(ch, i, std::isfinite(s) ? s : 0.0f);
+            float s = buffer.getSample(0, i);
+            if (!std::isfinite(s)) { s = 0.0f; buffer.setSample(0, i, 0.0f); }
+            pushNextSampleIntoFifo(s);
+
+            if (buffer.getNumChannels() > 1)
+            {
+                float r = buffer.getSample(1, i);
+                if (!std::isfinite(r)) buffer.setSample(1, i, 0.0f);
+            }
         }
+    }
 }
 
 void BZideProcessor::updateEQ()

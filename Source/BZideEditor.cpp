@@ -311,9 +311,8 @@ void BZideEditor::mouseDown(const juce::MouseEvent& e)
 
 void BZideEditor::timerCallback()
 {
-    // Update VU meter with output level and repaint
+    // Update VU meter (partial repaint handled inside updateMeter)
     outputSection->updateMeter();
-    outputSection->repaint();
 
     // Sync insert slot UI with processor state
     insertSection->syncSlotsFromProcessor();
