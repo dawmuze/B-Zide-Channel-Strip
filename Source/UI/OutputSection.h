@@ -108,11 +108,17 @@ public:
             f.setPaintingIsUnclipped(true); // thumb can paint outside bounds
             addAndMakeVisible(f);
         };
-        // INPUT faders (display input level — user can move but they track audio level)
+        // INPUT faders (linked — moving one moves the other)
         setupFader(inFaderL);
         inFaderL.setRange(-60.0, 12.0, 0.1);
         setupFader(inFaderR);
         inFaderR.setRange(-60.0, 12.0, 0.1);
+        inFaderL.onValueChange = [this]() {
+            inFaderR.setValue(inFaderL.getValue(), juce::dontSendNotification);
+        };
+        inFaderR.onValueChange = [this]() {
+            inFaderL.setValue(inFaderR.getValue(), juce::dontSendNotification);
+        };
         // OUTPUT faders (L linked to APVTS, R mirrors L)
         setupFader(outFaderL);
         outFaderAtt = std::make_unique<SA>(apvts, "out_fader", outFaderL);
