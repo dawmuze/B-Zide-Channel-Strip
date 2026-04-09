@@ -94,7 +94,7 @@ public:
 
             // Gate gain based on hysteresis state
             float attenGain = floorLin;
-            if (mode_ == EXPANDER && !gateOpen_)
+            if (mode_ == EXPANDER && !gateOpen_ && threshLin > 1.0e-10f)
                 attenGain = std::max(floorLin, envelope_ / threshLin);
 
             float targetGain = gateOpen_ ? 1.0f : attenGain;
