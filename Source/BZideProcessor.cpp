@@ -190,6 +190,20 @@ void BZideProcessor::prepareToPlay(double sampleRate, int samplesPerBlock)
     // Pre-allocate dry buffer (FIX 2)
     preDryBuffer_.setSize(2, samplesPerBlock);
 
+    // Report limiter latency to host for PDC (plugin delay compensation)
+    setLatencySamples(limiter_.getLatencySamples());
+
+    // Re-prepare loaded insert slots to reset internal state between renders
+    for (int i = 0; i < numInsertSlots; ++i)
+    {
+        if (insertSlots_[i].isLoaded())
+        {
+            auto type = insertSlots_[i].getModuleType();
+            insertSlots_[i].unload();
+            insertSlots_[i].loadModule(type, sampleRate, samplesPerBlock);
+        }
+    }
+
     // Reset cached params so coefficients are recalculated on first block
     cachedHpf_ = -1; cachedLpf_ = -1;
     cachedLowF_ = -1; cachedLowG_ = -1; cachedLowQ_ = -1; cachedLowType_ = -1;
@@ -378,7 +392,7 @@ void BZideProcessor::updateEQ()
     // FIX 1: Only recalculate coefficients for bands whose params actually changed
 
     // HPF — slope controls Q: 0=6dB(gentle), 1=12dB(Butterworth), 2=18dB(steep)
-    if (std::abs(hpf - cachedHpf_) > 0.5f || cachedHpfSlope_ != hpfSlope)
+    if (cachedHpf_ < 0.0f || std::abs(hpf - cachedHpf_) > 0.5f || cachedHpfSlope_ != hpfSlope)
     {
         cachedHpf_ = hpf;
         cachedHpfSlope_ = hpfSlope;
@@ -389,7 +403,7 @@ void BZideProcessor::updateEQ()
     }
 
     // Low band — dynamic curve type
-    if (std::abs(lowF - cachedLowF_) > 0.5f || std::abs(lowG - cachedLowG_) > 0.05f ||
+    if (cachedLowF_ < 0.0f || std::abs(lowF - cachedLowF_) > 0.5f || std::abs(lowG - cachedLowG_) > 0.05f ||
         std::abs(lowQ - cachedLowQ_) > 0.005f || lowType != cachedLowType_)
     {
         cachedLowF_ = lowF; cachedLowG_ = lowG; cachedLowQ_ = lowQ; cachedLowType_ = lowType;
@@ -405,7 +419,7 @@ void BZideProcessor::updateEQ()
     }
 
     // Mid band — dynamic curve type
-    if (std::abs(midF - cachedMidF_) > 0.5f || std::abs(midG - cachedMidG_) > 0.05f ||
+    if (cachedMidF_ < 0.0f || std::abs(midF - cachedMidF_) > 0.5f || std::abs(midG - cachedMidG_) > 0.05f ||
         std::abs(midQ - cachedMidQ_) > 0.005f || midType != cachedMidType_)
     {
         cachedMidF_ = midF; cachedMidG_ = midG; cachedMidQ_ = midQ; cachedMidType_ = midType;
@@ -421,7 +435,7 @@ void BZideProcessor::updateEQ()
     }
 
     // High band — dynamic curve type
-    if (std::abs(hiF - cachedHiF_) > 0.5f || std::abs(hiG - cachedHiG_) > 0.05f ||
+    if (cachedHiF_ < 0.0f || std::abs(hiF - cachedHiF_) > 0.5f || std::abs(hiG - cachedHiG_) > 0.05f ||
         std::abs(hiQ - cachedHiQ_) > 0.005f || highType != cachedHiType_)
     {
         cachedHiF_ = hiF; cachedHiG_ = hiG; cachedHiQ_ = hiQ; cachedHiType_ = highType;
@@ -437,7 +451,7 @@ void BZideProcessor::updateEQ()
     }
 
     // LPF — slope controls Q: 0=6dB(gentle), 1=12dB(Butterworth), 2=18dB(steep)
-    if (std::abs(lpf - cachedLpf_) > 0.5f || cachedLpfSlope_ != lpfSlope)
+    if (cachedLpf_ < 0.0f || std::abs(lpf - cachedLpf_) > 0.5f || cachedLpfSlope_ != lpfSlope)
     {
         cachedLpf_ = lpf;
         cachedLpfSlope_ = lpfSlope;

@@ -25,6 +25,7 @@ public:
     void setRelease(float ms) { releaseMs_ = ms; }
     void setBypass(bool b) { bypass_ = b; }
     float getGainReduction() const { return gainReduction_; }
+    int getLatencySamples() const { return delaySamples_; }
 
     void process(juce::AudioBuffer<float>& buffer)
     {
