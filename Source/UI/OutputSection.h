@@ -766,11 +766,12 @@ private:
 
     float getLEDdB(int index) const
     {
+        // Professional meter scale: more resolution in -24 to +6 range
         static constexpr float dbValues[kNumLEDs] = {
-            -90.0f, -66.0f, -60.0f, -54.0f, -48.0f, -42.0f, -36.0f, -30.0f,
-            -24.0f, -20.0f, -18.0f, -15.0f, -12.0f, -10.0f, -9.0f, -8.0f,
-            -7.0f, -6.0f, -5.0f, -4.0f, -3.0f, -2.0f, -1.0f, 0.0f,
-             2.0f,  4.0f,  8.0f,  12.0f
+            -60.0f, -48.0f, -42.0f, -36.0f, -30.0f, -27.0f, -24.0f, -21.0f,
+            -18.0f, -15.0f, -12.0f, -10.0f, -9.0f,  -8.0f,  -7.0f,  -6.0f,
+            -5.0f,  -4.0f,  -3.0f,  -2.0f,  -1.0f,   0.0f,   1.0f,   2.0f,
+             3.0f,   4.0f,   6.0f,   9.0f
         };
         return dbValues[index];
     }
