@@ -139,6 +139,16 @@ public:
 
     juce::TextButton& getLimiterButton() { return limiterBtn; }
 
+    void mouseDoubleClick(const juce::MouseEvent&) override
+    {
+        // Double-click anywhere on output section resets peak hold & clip
+        inputPeakHold = -100.0f;
+        outputPeakHold = -100.0f;
+        inputClip = false;
+        outputClip = false;
+        repaint();
+    }
+
     void updateMeter()
     {
         float inTarget = (processor.inputLevelL.load() + processor.inputLevelR.load()) * 0.5f;
@@ -154,6 +164,14 @@ public:
             outputMeterLevel += (outTarget - outputMeterLevel) * 0.3f;
         else
             outputMeterLevel += (outTarget - outputMeterLevel) * 0.05f;
+
+        // Peak hold — stays at highest value until user clicks to reset
+        if (inputMeterLevel > inputPeakHold) inputPeakHold = inputMeterLevel;
+        if (outputMeterLevel > outputPeakHold) outputPeakHold = outputMeterLevel;
+
+        // Clip indicators — latch on if level >= 0dBFS
+        if (inputMeterLevel >= 0.0f) inputClip = true;
+        if (outputMeterLevel >= 0.0f) outputClip = true;
 
         // Input level is shown via LED meter strips only — faders stay where user sets them
 
@@ -239,21 +257,45 @@ protected:
                 drawDiv(inputReadoutBounds.getBottom() + 3);
         }
 
-        // LED Meter Strips — no built-in scale, we draw our own
-        drawLEDMeterStrip(g, inputLedBounds, inputMeterLevel, 0);
-        drawLEDMeterStrip(g, outputLedBounds, outputMeterLevel, 0);
+        // LED Meter Strips with peak hold
+        drawLEDMeterStrip(g, inputLedBounds, inputMeterLevel, 0, inputPeakHold);
+        drawLEDMeterStrip(g, outputLedBounds, outputMeterLevel, 0, outputPeakHold);
 
-        // 2-class scale marks like the KI-2A image
-        // Inner marks (between faders): -90, -66, -42, -24, -12, -6, -1
-        // Outer marks (outside): -Inf, 0, 12
-        drawDualScale(g, inFaderL, inFaderR, inputLedBounds, true);   // INPUT block
-        drawDualScale(g, outFaderL, outFaderR, outputLedBounds, false); // OUTPUT block
+        // Clip indicators (red boxes at top of each meter)
+        auto drawClipBox = [&](juce::Rectangle<int> meterBounds, bool clipped) {
+            auto clipR = juce::Rectangle<float>((float)meterBounds.getX(), (float)meterBounds.getY() - 8.0f,
+                                                 (float)meterBounds.getWidth(), 6.0f);
+            g.setColour(clipped ? juce::Colour(0xFFFF0000) : juce::Colour(0xFF1A0404));
+            g.fillRoundedRectangle(clipR, 1.0f);
+        };
+        if (!inputLedBounds.isEmpty()) drawClipBox(inputLedBounds, inputClip);
+        if (!outputLedBounds.isEmpty()) drawClipBox(outputLedBounds, outputClip);
 
-        // Fader scale removed — dB marks from LED meter are enough
+        // Scale marks
+        drawDualScale(g, inFaderL, inFaderR, inputLedBounds, true);
+        drawDualScale(g, outFaderL, outFaderR, outputLedBounds, false);
 
-        // Digital readouts
+        // Digital readouts — show RMS level + peak hold
         drawDigitalReadout(g, inputReadoutBounds, inputMeterLevel);
         drawDigitalReadoutFader(g, outputReadoutBounds);
+
+        // Peak hold readouts (below digital readouts, small text)
+        if (!inputReadoutBounds.isEmpty())
+        {
+            auto pkR = inputReadoutBounds.translated(0, inputReadoutBounds.getHeight() + 2);
+            pkR.setHeight(10);
+            g.setColour(inputClip ? juce::Colour(0xFFFF0000) : juce::Colour(0xFF888888));
+            g.setFont(juce::Font(juce::FontOptions(7.5f)).boldened());
+            g.drawText("PK " + juce::String(inputPeakHold, 1), pkR, juce::Justification::centred);
+        }
+        if (!outputReadoutBounds.isEmpty())
+        {
+            auto pkR = outputReadoutBounds.translated(0, outputReadoutBounds.getHeight() + 2);
+            pkR.setHeight(10);
+            g.setColour(outputClip ? juce::Colour(0xFFFF0000) : juce::Colour(0xFF888888));
+            g.setFont(juce::Font(juce::FontOptions(7.5f)).boldened());
+            g.drawText("PK " + juce::String(outputPeakHold, 1), pkR, juce::Justification::centred);
+        }
 
         // Labels above LED meters
         g.setColour(juce::Colour(kDimText));
@@ -699,6 +741,12 @@ private:
     float outputMeterLevel = -100.0f;
     float grLevel = 0.0f;
 
+    // Peak hold state (static peak indicators)
+    float inputPeakHold  = -100.0f;
+    float outputPeakHold = -100.0f;
+    bool inputClip  = false;
+    bool outputClip = false;
+
     // Layout rects
     juce::Rectangle<int> logoAreaBounds;
     juce::Rectangle<int> inputLedBounds;
@@ -795,7 +843,7 @@ private:
         return top + height * (1.0f - normalized);
     }
 
-    void drawLEDMeterStrip(juce::Graphics& g, juce::Rectangle<int> bounds, float level, int scaleSide) const
+    void drawLEDMeterStrip(juce::Graphics& g, juce::Rectangle<int> bounds, float level, int scaleSide, float peakHold = -100.0f) const
     {
         if (bounds.isEmpty()) return;
 
@@ -848,6 +896,14 @@ private:
             float yPos = dbToY(dbMarks[i], top, h);
             g.setColour(juce::Colours::black.withAlpha(0.6f));
             g.drawLine(slot.getX(), yPos, slot.getRight(), yPos, 1.0f);
+        }
+
+        // Peak hold line (bright white/yellow static indicator)
+        if (peakHold > meterMinDb)
+        {
+            float peakY = dbToY(peakHold, top, h);
+            g.setColour(juce::Colour(0xFFFFFF00)); // bright yellow
+            g.drawLine(slot.getX() + 1.0f, peakY, slot.getRight() - 1.0f, peakY, 1.5f);
         }
 
         // Border
