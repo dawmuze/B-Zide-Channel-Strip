@@ -4,7 +4,7 @@ BZideEditor::BZideEditor(BZideProcessor& p)
     : AudioProcessorEditor(&p), processor(p)
 {
     setLookAndFeel(&lnf);
-    startTimerHz(30);
+    startTimerHz(20); // 20Hz = less CPU, smooth enough for meters
 
     auto& apvts = processor.getAPVTS();
 

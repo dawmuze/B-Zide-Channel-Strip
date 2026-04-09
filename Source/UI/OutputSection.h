@@ -209,9 +209,16 @@ public:
             vuMeterOut.setLevel(outTarget);
         }
 
-        // Only repaint meter areas, not entire 340x800 output section
-        if (!inputLedBounds.isEmpty()) repaint(inputLedBounds.expanded(20, 30));
-        if (!outputLedBounds.isEmpty()) repaint(outputLedBounds.expanded(20, 30));
+        // Only repaint if level changed enough to be visible (>1dB)
+        bool changed = (std::abs(inTarget - prevInDisplay_) > 1.0f)
+                     || (std::abs(outTarget - prevOutDisplay_) > 1.0f);
+        if (changed)
+        {
+            prevInDisplay_ = inTarget;
+            prevOutDisplay_ = outTarget;
+            if (!inputLedBounds.isEmpty()) repaint(inputLedBounds.expanded(20, 30));
+            if (!outputLedBounds.isEmpty()) repaint(outputLedBounds.expanded(20, 30));
+        }
     }
 
 protected:
@@ -751,6 +758,8 @@ private:
     // Peak hold state (static peak indicators)
     float inputPeakHold  = -100.0f;
     float outputPeakHold = -100.0f;
+    float prevInDisplay_  = -100.0f; // for conditional repaint
+    float prevOutDisplay_ = -100.0f;
     bool inputClip  = false;
     bool outputClip = false;
 
