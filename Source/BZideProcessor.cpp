@@ -21,7 +21,7 @@ juce::AudioProcessorValueTreeState::ParameterLayout BZideProcessor::createParame
     juce::AudioProcessorValueTreeState::ParameterLayout layout;
 
     // ── PRE Section ──
-    layout.add(std::make_unique<juce::AudioParameterBool>(juce::ParameterID("pre_bypass", 1), "PRE Bypass", true));
+    layout.add(std::make_unique<juce::AudioParameterBool>(juce::ParameterID("pre_bypass", 1), "PRE Bypass", false));
     layout.add(std::make_unique<juce::AudioParameterChoice>(juce::ParameterID("pre_type", 1), "PRE Type",
         juce::StringArray{ "ODD", "EVEN", "HEAVY" }, 0));
     layout.add(std::make_unique<juce::AudioParameterFloat>(juce::ParameterID("pre_drive", 1), "PRE Drive",
@@ -61,7 +61,7 @@ juce::AudioProcessorValueTreeState::ParameterLayout BZideProcessor::createParame
         juce::NormalisableRange<float>(0.1f, 10.0f, 0.01f, 0.5f), 0.707f));
 
     // ── DS² (De-Esser) Section ──
-    layout.add(std::make_unique<juce::AudioParameterBool>(juce::ParameterID("ds_bypass", 1), "DS Bypass", true));
+    layout.add(std::make_unique<juce::AudioParameterBool>(juce::ParameterID("ds_bypass", 1), "DS Bypass", false));
     layout.add(std::make_unique<juce::AudioParameterFloat>(juce::ParameterID("ds_freq1", 1), "DS Band1 Freq",
         juce::NormalisableRange<float>(2000.0f, 12000.0f, 1.0f, 0.3f), 6000.0f));
     layout.add(std::make_unique<juce::AudioParameterFloat>(juce::ParameterID("ds_thresh1", 1), "DS Band1 Thresh",
@@ -74,7 +74,7 @@ juce::AudioProcessorValueTreeState::ParameterLayout BZideProcessor::createParame
         juce::NormalisableRange<float>(-12.0f, 12.0f, 0.1f), 0.0f));
 
     // ── COMP Section ──
-    layout.add(std::make_unique<juce::AudioParameterBool>(juce::ParameterID("comp_bypass", 1), "COMP Bypass", true));
+    layout.add(std::make_unique<juce::AudioParameterBool>(juce::ParameterID("comp_bypass", 1), "COMP Bypass", false));
     layout.add(std::make_unique<juce::AudioParameterChoice>(juce::ParameterID("comp_type", 1), "COMP Type",
         juce::StringArray{ "VCA", "FET", "OPT" }, 0));
     layout.add(std::make_unique<juce::AudioParameterFloat>(juce::ParameterID("comp_threshold", 1), "COMP Threshold",
@@ -93,7 +93,7 @@ juce::AudioProcessorValueTreeState::ParameterLayout BZideProcessor::createParame
         juce::NormalisableRange<float>(-12.0f, 12.0f, 0.1f), 0.0f));
 
     // ── GATE Section ──
-    layout.add(std::make_unique<juce::AudioParameterBool>(juce::ParameterID("gate_bypass", 1), "GATE Bypass", true));
+    layout.add(std::make_unique<juce::AudioParameterBool>(juce::ParameterID("gate_bypass", 1), "GATE Bypass", false));
     layout.add(std::make_unique<juce::AudioParameterChoice>(juce::ParameterID("gate_type", 1), "GATE Type",
         juce::StringArray{ "GATE", "EXP" }, 0));
     layout.add(std::make_unique<juce::AudioParameterFloat>(juce::ParameterID("gate_threshold", 1), "GATE Threshold",
@@ -534,8 +534,8 @@ void BZideProcessor::setSectionOrder(const std::array<int, 6>& order)
 
 void BZideProcessor::processPre(juce::AudioBuffer<float>& buffer)
 {
-    bool bypassed = *apvts.getRawParameterValue("pre_bypass") > 0.5f;
-    if (bypassed) return;
+    bool active = *apvts.getRawParameterValue("pre_bypass") > 0.5f; // ON button = active
+    if (!active) return;
 
     // Input gain — drives the saturation harder or softer
     float inputDb = *apvts.getRawParameterValue("pre_input");
@@ -630,8 +630,8 @@ void BZideProcessor::processPre(juce::AudioBuffer<float>& buffer)
 
 void BZideProcessor::processEQ(juce::AudioBuffer<float>& buffer)
 {
-    bool eqBypassed = *apvts.getRawParameterValue("eq_bypass") > 0.5f;
-    if (!eqBypassed)
+    bool eqActive = *apvts.getRawParameterValue("eq_bypass") > 0.5f; // ON button = active
+    if (eqActive)
     {
         updateEQ();
         auto blockL = juce::dsp::AudioBlock<float>(buffer).getSingleChannelBlock(0);
@@ -648,8 +648,8 @@ void BZideProcessor::processEQ(juce::AudioBuffer<float>& buffer)
 
 void BZideProcessor::processDS2(juce::AudioBuffer<float>& buffer)
 {
-    bool dsBypassed = *apvts.getRawParameterValue("ds_bypass") > 0.5f;
-    if (!dsBypassed)
+    bool dsActive = *apvts.getRawParameterValue("ds_bypass") > 0.5f; // ON button = active
+    if (dsActive)
     {
         deEsser_.setBand(0,
             *apvts.getRawParameterValue("ds_freq1"),
@@ -668,8 +668,8 @@ void BZideProcessor::processDS2(juce::AudioBuffer<float>& buffer)
 
 void BZideProcessor::processComp(juce::AudioBuffer<float>& buffer)
 {
-    bool bypassed = *apvts.getRawParameterValue("comp_bypass") > 0.5f;
-    compressor_.setBypass(bypassed);
+    bool compActive = *apvts.getRawParameterValue("comp_bypass") > 0.5f; // ON = active
+    compressor_.setBypass(!compActive); // invert: active=true means bypass=false
     compressor_.setThreshold(*apvts.getRawParameterValue("comp_threshold"));
     compressor_.setRatio(*apvts.getRawParameterValue("comp_ratio"));
     compressor_.setAttack(*apvts.getRawParameterValue("comp_attack"));
@@ -698,8 +698,8 @@ void BZideProcessor::processComp(juce::AudioBuffer<float>& buffer)
 
 void BZideProcessor::processGate(juce::AudioBuffer<float>& buffer)
 {
-    bool bypassed = *apvts.getRawParameterValue("gate_bypass") > 0.5f;
-    gate_.setBypass(bypassed);
+    bool gateActive = *apvts.getRawParameterValue("gate_bypass") > 0.5f; // ON = active
+    gate_.setBypass(!gateActive); // invert: active=true means bypass=false
     gate_.setThreshold(*apvts.getRawParameterValue("gate_threshold"));
     gate_.setAttenuation(*apvts.getRawParameterValue("gate_atten"));
     gate_.setFloor(*apvts.getRawParameterValue("gate_floor"));

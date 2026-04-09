@@ -108,11 +108,11 @@ public:
             f.setPaintingIsUnclipped(true); // thumb can paint outside bounds
             addAndMakeVisible(f);
         };
-        // INPUT faders (display-only — show input level)
+        // INPUT faders (display input level — user can move but they track audio level)
         setupFader(inFaderL);
-        inFaderL.setEnabled(false); inFaderL.setRange(-60.0, 12.0, 0.1);
+        inFaderL.setRange(-60.0, 12.0, 0.1);
         setupFader(inFaderR);
-        inFaderR.setEnabled(false); inFaderR.setRange(-60.0, 12.0, 0.1);
+        inFaderR.setRange(-60.0, 12.0, 0.1);
         // OUTPUT faders (L linked to APVTS, R mirrors L)
         setupFader(outFaderL);
         outFaderAtt = std::make_unique<SA>(apvts, "out_fader", outFaderL);
@@ -152,8 +152,9 @@ public:
         else
             outputMeterLevel += (outTarget - outputMeterLevel) * 0.05f;
 
-        // Input faders are display-only — show input level via LED meters only
-        // Do NOT update fader values (that would make them bounce with audio)
+        // Update input faders to show input level (display meters)
+        inFaderL.setValue(processor.inputLevelL.load(), juce::dontSendNotification);
+        inFaderR.setValue(processor.inputLevelR.load(), juce::dontSendNotification);
 
         // Mirror output fader R from L (only when linked)
         if (linkBtn.getToggleState())
