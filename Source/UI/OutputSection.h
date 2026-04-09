@@ -43,8 +43,13 @@ public:
         }
         routeStereo.setToggleState(true, juce::dontSendNotification);
 
-        // Wire routing buttons to out_mode parameter
-        routeStereo.onClick = [this, &apvts]() { if (routeStereo.getToggleState()) apvts.getParameter("out_mode")->setValueNotifyingHost(0.0f); };
+        // Wire ALL routing buttons
+        // Top row: L=left only, STEREO=normal, R=right only
+        routeL.onClick = [this, &apvts]() { if (routeL.getToggleState()) apvts.getParameter("out_mode")->setValueNotifyingHost(0.0f); routeLeft_ = true; routeRight_ = false; };
+        routeStereo.onClick = [this, &apvts]() { if (routeStereo.getToggleState()) apvts.getParameter("out_mode")->setValueNotifyingHost(0.0f); routeLeft_ = false; routeRight_ = false; };
+        routeR.onClick = [this, &apvts]() { if (routeR.getToggleState()) apvts.getParameter("out_mode")->setValueNotifyingHost(0.0f); routeLeft_ = false; routeRight_ = true; };
+        // Bottom row: MUTE, MONO, SOLO(M/S)
+        routeM.onClick = [this]() { routeMuted_ = routeM.getToggleState(); };
         routeMono.onClick = [this, &apvts]() { if (routeMono.getToggleState()) apvts.getParameter("out_mode")->setValueNotifyingHost(0.5f); };
         routeS.onClick = [this, &apvts]() { if (routeS.getToggleState()) apvts.getParameter("out_mode")->setValueNotifyingHost(1.0f); };
 
@@ -714,6 +719,9 @@ private:
     juce::TextButton routeM       { "MUTE" };
     juce::TextButton routeMono    { "MONO" };
     juce::TextButton routeS       { "SOLO" };
+
+    // Routing state (for L/R solo and mute)
+    bool routeLeft_ = false, routeRight_ = false, routeMuted_ = false;
 
     // L2 Ultramaximizer Limiter
     juce::TextButton limiterBtn   { "LIMIT" };

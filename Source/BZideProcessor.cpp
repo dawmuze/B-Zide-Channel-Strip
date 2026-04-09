@@ -225,7 +225,12 @@ void BZideProcessor::prepareToPlay(double sampleRate, int samplesPerBlock)
     updateEQ();
 }
 
-void BZideProcessor::releaseResources() {}
+void BZideProcessor::releaseResources()
+{
+    // Clean up insert slots to prevent memory leaks on plugin unload
+    for (int i = 0; i < numInsertSlots; ++i)
+        if (insertSlots_[i].isLoaded()) insertSlots_[i].unload();
+}
 
 void BZideProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiBuffer&)
 {
@@ -731,6 +736,7 @@ void BZideProcessor::pushNextSampleIntoFifo(float sample)
 void BZideProcessor::loadInsert(int slotIndex, InsertProcessor::ModuleType type)
 {
     if (slotIndex < 0 || slotIndex >= numInsertSlots) return;
+    if (insertSlots_[slotIndex].isLoaded()) insertSlots_[slotIndex].unload(); // prevent leak
     insertSlots_[slotIndex].loadModule(type, currentSampleRate_, getBlockSize());
 }
 
@@ -834,6 +840,7 @@ void BZideProcessor::setStateInformation(const void* data, int sizeInBytes)
                 // Validate: index in range, module type in valid enum range [1..6]
                 if (idx >= 0 && idx < numInsertSlots && mod >= 1 && mod <= 6)
                 {
+                    if (insertSlots_[idx].isLoaded()) insertSlots_[idx].unload(); // prevent leak
                     double sr = currentSampleRate_ > 0 ? currentSampleRate_ : 44100.0;
                     int bs = getBlockSize() > 0 ? getBlockSize() : 512;
                     insertSlots_[idx].loadModule(
