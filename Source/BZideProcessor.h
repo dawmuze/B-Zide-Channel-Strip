@@ -286,5 +286,9 @@ private:
     float prevCompOutputGain_ = 1.0f;
     float prevFaderGain_ = 1.0f;
 
+    // Bypass crossfade (~10ms ramp to avoid pop on IN toggle)
+    float bypassGain_ = 1.0f;      // 1.0 = processing, 0.0 = bypassed
+    bool wasBypassed_ = false;
+
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(BZideProcessor)
 };

@@ -258,15 +258,16 @@ void BZideProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiBu
         inputLevelR.store(juce::Decibels::gainToDecibels(rmsR, -100.0f));
     }
 
-    // Master bypass (IN button) — still applies limiter delay for PDC alignment
-    if (*apvts.getRawParameterValue("master_bypass") > 0.5f)
+    // Master bypass with crossfade (~10ms ramp, no pop)
+    bool isBypassed = *apvts.getRawParameterValue("master_bypass") > 0.5f;
+    float bypassTarget = isBypassed ? 0.0f : 1.0f;
+
+    // Save dry input for bypass crossfade (reuse pre-allocated buffer)
+    bool needsCrossfade = (std::abs(bypassGain_ - bypassTarget) > 0.001f) || (isBypassed && bypassGain_ > 0.001f);
+    if (needsCrossfade)
     {
-        buffer.clear();
-        limiter_.setBypass(true);
-        limiter_.process(buffer); // apply delay even when bypassed
-        outputLevelL.store(-100.0f);
-        outputLevelR.store(-100.0f);
-        return;
+        for (int ch = 0; ch < juce::jmin(buffer.getNumChannels(), preDryBuffer_.getNumChannels()); ++ch)
+            preDryBuffer_.copyFrom(ch, 0, buffer, ch, 0, buffer.getNumSamples());
     }
 
     // Process DSP sections in user-defined order (6 draggable sections)
@@ -353,6 +354,30 @@ void BZideProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiBu
             float r = buffer.getSample(1, i);
             buffer.setSample(0, i, (l + r) * 0.5f); // Mid
             buffer.setSample(1, i, (l - r) * 0.5f); // Side
+        }
+    }
+
+    // ── BYPASS CROSSFADE (~10ms ramp) ──
+    if (needsCrossfade)
+    {
+        float rampStep = 1.0f / (float)(currentSampleRate_ * 0.010); // 10ms
+        for (int i = 0; i < buffer.getNumSamples(); ++i)
+        {
+            // Ramp bypassGain_ toward target
+            if (bypassGain_ < bypassTarget)
+                bypassGain_ = juce::jmin(bypassGain_ + rampStep, bypassTarget);
+            else if (bypassGain_ > bypassTarget)
+                bypassGain_ = juce::jmax(bypassGain_ - rampStep, bypassTarget);
+
+            float wet = bypassGain_;
+            float dry = 1.0f - wet;
+
+            for (int ch = 0; ch < buffer.getNumChannels(); ++ch)
+            {
+                float dryS = preDryBuffer_.getSample(ch, i);
+                float wetS = buffer.getSample(ch, i);
+                buffer.setSample(ch, i, dryS * dry + wetS * wet);
+            }
         }
     }
 
