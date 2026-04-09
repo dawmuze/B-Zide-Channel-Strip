@@ -118,8 +118,8 @@ public:
             lastGainLin_ = juce::jmax(0.01f, lastGainLin_); // Phase 1D: FB stability clamp
             peakGR = std::min(peakGR, gr);
 
-            // Phase 1B: Anti-zipper smoothing (~2ms at 44.1kHz)
-            float smoothCoeff = 0.9995f;
+            // Phase 1B: Anti-zipper smoothing (~2ms, SR-scaled)
+            float smoothCoeff = std::exp(-1.0f / (float)(sr_ * 0.002));
             smoothedGain_ = smoothCoeff * smoothedGain_ + (1.0f - smoothCoeff) * gainLin;
 
             // Apply gain with mix (parallel compression)

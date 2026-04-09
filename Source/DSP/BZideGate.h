@@ -99,8 +99,8 @@ public:
 
             float targetGain = gateOpen_ ? 1.0f : attenGain;
 
-            // Phase 2B: Gain smoothing (~1ms)
-            float gateSmooth = 0.999f;
+            // Phase 2B: Gain smoothing (~1ms, SR-scaled)
+            float gateSmooth = std::exp(-1.0f / (float)(sr_ * 0.001));
             smoothedGateGain_ = gateSmooth * smoothedGateGain_ + (1.0f - gateSmooth) * targetGain;
 
             for (int ch = 0; ch < buffer.getNumChannels(); ++ch)
