@@ -209,7 +209,9 @@ public:
             vuMeterOut.setLevel(outTarget);
         }
 
-        repaint();
+        // Only repaint meter areas, not entire 340x800 output section
+        if (!inputLedBounds.isEmpty()) repaint(inputLedBounds.expanded(20, 30));
+        if (!outputLedBounds.isEmpty()) repaint(outputLedBounds.expanded(20, 30));
     }
 
 protected:

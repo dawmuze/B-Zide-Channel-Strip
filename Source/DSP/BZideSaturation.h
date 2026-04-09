@@ -50,15 +50,9 @@ public:
     {
         if (!oversampling_) return;
 
-        // Always process through oversampling for latency consistency (even on bypass)
+        // Bypass: skip processing entirely (latency reported to host via PDC)
         if (bypass_ || drive_ < 0.1f)
-        {
-            // Pass through oversampling (up + down) to maintain latency, no saturation
-            auto block = juce::dsp::AudioBlock<float>(buffer);
-            auto osBlock = oversampling_->processSamplesUp(block);
-            oversampling_->processSamplesDown(block);
             return;
-        }
 
         float driveGain = 1.0f + drive_ * 0.1f; // 1x to 11x
 
@@ -126,8 +120,8 @@ public:
 private:
     void rebuildOversampling(int samplesPerBlock)
     {
-        // HEAVY/CRUNCH use 4x oversampling (order 2 = 2^2), ODD/EVEN use 2x (order 1 = 2^1)
-        int order = (mode_ == HEAVY || mode_ == CRUNCH) ? 2 : 1;
+        // All modes use 2x oversampling (order 1 = 2^1) — good quality, low CPU
+        int order = 1;
         if (currentOsOrder_ != order)
         {
             oversampling_ = std::make_unique<juce::dsp::Oversampling<float>>(
