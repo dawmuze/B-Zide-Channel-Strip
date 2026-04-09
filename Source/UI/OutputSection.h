@@ -10,9 +10,11 @@ public:
         : ChannelSection(SectionId::OUTPUT, "OUTPUT", 340, false),
           processor(proc)
     {
-        // Dual VU Meters
+        // Dual VU Meters — calibrated: 0dBVU = -18dBFS (EBU broadcast standard)
         addAndMakeVisible(vuMeterIn);
         addAndMakeVisible(vuMeterOut);
+        vuMeterIn.getMeterFace().getBallistics().setReferenceLevel(18.0f);
+        vuMeterOut.getMeterFace().getBallistics().setReferenceLevel(18.0f);
 
         // Meter select buttons: IN, GR, OUT
         for (auto* b : { &meterSelIn, &meterSelGR, &meterSelOut })

@@ -52,6 +52,7 @@ public:
         float releaseCoeff = std::exp(-1.0f / (float)(sr_ * juce::jmax(10.0f, effectiveRelease) * 0.001));
         float threshLin = juce::Decibels::decibelsToGain(threshold_);
         float floorLin = juce::Decibels::decibelsToGain(floor_);
+        float peakGR = 0.0f;
 
         for (int i = 0; i < buffer.getNumSamples(); ++i)
         {
@@ -104,8 +105,16 @@ public:
 
             for (int ch = 0; ch < buffer.getNumChannels(); ++ch)
                 buffer.setSample(ch, i, buffer.getSample(ch, i) * smoothedGateGain_);
+
+            // Track GR for meter display
+            float grDb = -juce::Decibels::gainToDecibels(smoothedGateGain_);
+            if (grDb > peakGR) peakGR = grDb;
         }
+
+        gainReduction_ = peakGR;
     }
+
+    float getGainReduction() const { return gainReduction_; }
 
 private:
     double sr_ = 44100.0;
@@ -122,6 +131,7 @@ private:
     float envelope_ = 0.0f;
     bool gateOpen_ = false;            // Phase 2A: hysteresis state
     float smoothedGateGain_ = 1.0f;    // Phase 2B: gain smoothing
+    float gainReduction_ = 0.0f;       // Peak GR per block for meter display
 
     // Sidechain bandpass filters (HPF + LPF per channel)
     juce::dsp::IIR::Filter<float> scHpfL_, scHpfR_;

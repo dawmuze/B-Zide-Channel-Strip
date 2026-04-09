@@ -58,23 +58,11 @@ void MeterBallistics::process (float inputDb, double elapsedMs)
 
     if (mode == MeterMode::VU)
     {
-        // Instant attack, slow release — for GR display
+        // Standard VU: symmetric 300ms attack AND release (IEC 268-10)
         float dt = static_cast<float> (elapsedMs);
-
-        if (targetDb < currentDb)
-        {
-            // Attack: INSTANT — jump to target immediately
-            currentDb = targetDb;
-            velocity = 0.f;
-        }
-        else
-        {
-            // Release: smooth (300ms)
-            float coeff = std::exp (-dt / 300.f);
-            currentDb = targetDb + coeff * (currentDb - targetDb);
-            velocity = 0.f;
-        }
-        currentDb += velocity * dt;
+        float coeff = std::exp (-dt / 300.f); // 300ms in both directions
+        currentDb = targetDb + coeff * (currentDb - targetDb);
+        velocity = 0.f;
     }
     else
     {
