@@ -12,6 +12,18 @@ BZideProcessor::BZideProcessor()
         licenseValidator_.startTrial();
     else if (licenseValidator_.isTrial())
         licenseValidator_.checkTrial();
+
+    // Initialize plugin hosting
+    juce::addDefaultFormatsToManager(formatManager_);
+
+    // Load cached plugin list
+    auto cacheFile = juce::File::getSpecialLocation(juce::File::userApplicationDataDirectory)
+        .getChildFile("Dawmuze").getChildFile("plugin-cache.xml");
+    if (cacheFile.existsAsFile())
+    {
+        if (auto xml = juce::parseXML(cacheFile))
+            knownPlugins_.recreateFromXml(*xml);
+    }
 }
 
 BZideProcessor::~BZideProcessor() {}
@@ -212,6 +224,16 @@ void BZideProcessor::prepareToPlay(double sampleRate, int samplesPerBlock)
         }
     }
 
+    // Re-prepare external plugins
+    for (int i = 0; i < numInsertSlots; ++i)
+    {
+        if (isExternalPlugin_[i] && externalPlugins_[i])
+        {
+            externalPlugins_[i]->prepareToPlay(sampleRate, samplesPerBlock);
+            externalPlugins_[i]->setPlayHead(getPlayHead());
+        }
+    }
+
     // Reset cached params so coefficients are recalculated on first block
     cachedHpf_ = -1; cachedLpf_ = -1;
     cachedLowF_ = -1; cachedLowG_ = -1; cachedLowQ_ = -1; cachedLowType_ = -1;
@@ -236,6 +258,12 @@ void BZideProcessor::releaseResources()
     // Clean up insert slots to prevent memory leaks on plugin unload
     for (int i = 0; i < numInsertSlots; ++i)
         if (insertSlots_[i].isLoaded()) insertSlots_[i].unload();
+
+    for (int i = 0; i < numInsertSlots; ++i)
+    {
+        if (externalPlugins_[i])
+            externalPlugins_[i]->releaseResources();
+    }
 }
 
 void BZideProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiBuffer&)
@@ -255,7 +283,13 @@ void BZideProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiBu
         int swapA = pendingSwapA_.exchange(-1);
         int swapB = pendingSwapB_.exchange(-1);
         if (swapA >= 0 && swapB >= 0 && swapA < numInsertSlots && swapB < numInsertSlots)
+        {
             std::swap(insertSlots_[swapA], insertSlots_[swapB]);
+            std::swap(externalPlugins_[swapA], externalPlugins_[swapB]);
+            std::swap(isExternalPlugin_[swapA], isExternalPlugin_[swapB]);
+            std::swap(externalPluginBypassed_[swapA], externalPluginBypassed_[swapB]);
+            std::swap(externalPluginDescs_[swapA], externalPluginDescs_[swapB]);
+        }
     }
 
     // License check — with 50ms crossfade to avoid pop on status transition
@@ -776,8 +810,80 @@ void BZideProcessor::swapInserts(int indexA, int indexB)
 
 void BZideProcessor::processInserts(juce::AudioBuffer<float>& buffer)
 {
+    juce::MidiBuffer emptyMidi;
     for (int i = 0; i < numInsertSlots; ++i)
-        insertSlots_[i].process(buffer);
+    {
+        if (isExternalPlugin_[i] && externalPlugins_[i] && !externalPluginBypassed_[i])
+        {
+            externalPlugins_[i]->processBlock(buffer, emptyMidi);
+        }
+        else if (!isExternalPlugin_[i])
+        {
+            insertSlots_[i].process(buffer);
+        }
+    }
+}
+
+void BZideProcessor::scanForPlugins()
+{
+    for (auto* format : formatManager_.getFormats())
+    {
+        auto paths = format->getDefaultLocationsToSearch();
+        for (int p = 0; p < paths.getNumPaths(); ++p)
+        {
+            auto dir = paths[p];
+            auto files = dir.findChildFiles(juce::File::findFilesAndDirectories, false);
+            for (auto& file : files)
+            {
+                juce::OwnedArray<juce::PluginDescription> found;
+                knownPlugins_.scanAndAddFile(file.getFullPathName(), true, found, *format);
+            }
+        }
+    }
+
+    // Save cache
+    if (auto xml = knownPlugins_.createXml())
+    {
+        auto cacheFile = juce::File::getSpecialLocation(juce::File::userApplicationDataDirectory)
+            .getChildFile("Dawmuze").getChildFile("plugin-cache.xml");
+        cacheFile.getParentDirectory().createDirectory();
+        xml->writeTo(cacheFile);
+    }
+}
+
+void BZideProcessor::loadExternalPlugin(int slotIndex, const juce::PluginDescription& desc)
+{
+    if (slotIndex < 0 || slotIndex >= numInsertSlots) return;
+
+    // Remove whatever was there
+    if (isExternalPlugin_[slotIndex])
+        removeExternalPlugin(slotIndex);
+    else if (insertSlots_[slotIndex].isLoaded())
+        insertSlots_[slotIndex].unload();
+
+    juce::String error;
+    auto instance = formatManager_.createPluginInstance(
+        desc, currentSampleRate_ > 0 ? currentSampleRate_ : 44100.0,
+        getBlockSize() > 0 ? getBlockSize() : 512, error);
+
+    if (instance)
+    {
+        instance->prepareToPlay(currentSampleRate_ > 0 ? currentSampleRate_ : 44100.0,
+                                getBlockSize() > 0 ? getBlockSize() : 512);
+        instance->setPlayHead(getPlayHead());
+        externalPlugins_[slotIndex] = std::move(instance);
+        isExternalPlugin_[slotIndex] = true;
+        externalPluginBypassed_[slotIndex] = false;
+        externalPluginDescs_[slotIndex] = desc;
+    }
+}
+
+void BZideProcessor::removeExternalPlugin(int slotIndex)
+{
+    if (slotIndex < 0 || slotIndex >= numInsertSlots) return;
+    externalPlugins_[slotIndex].reset();
+    isExternalPlugin_[slotIndex] = false;
+    externalPluginBypassed_[slotIndex] = false;
 }
 
 // ── State persistence ───────────────────────────────────────────────
@@ -806,6 +912,25 @@ void BZideProcessor::getStateInformation(juce::MemoryBlock& destData)
         slotXml->setAttribute("index", i);
         slotXml->setAttribute("module", static_cast<int>(insertSlots_[i].getModuleType()));
         slotXml->setAttribute("bypassed", insertSlots_[i].isBypassed());
+    }
+
+    // Save external plugins
+    auto* externalXml = xml->createNewChildElement("ExternalPlugins");
+    for (int i = 0; i < numInsertSlots; ++i)
+    {
+        if (isExternalPlugin_[i] && externalPlugins_[i])
+        {
+            auto* slotXml = externalXml->createNewChildElement("ExternalSlot");
+            slotXml->setAttribute("index", i);
+            slotXml->setAttribute("bypassed", externalPluginBypassed_[i]);
+
+            auto descXml = externalPluginDescs_[i].createXml();
+            slotXml->addChildElement(descXml.release());
+
+            juce::MemoryBlock state;
+            externalPlugins_[i]->getStateInformation(state);
+            slotXml->setAttribute("state", state.toBase64Encoding());
+        }
     }
 
     copyXmlToBinary(*xml, destData);
@@ -862,10 +987,40 @@ void BZideProcessor::setStateInformation(const void* data, int sizeInBytes)
             }
         }
 
+        // Restore external plugins
+        if (auto* externalXml = xml->getChildByName("ExternalPlugins"))
+        {
+            for (auto* slotXml : externalXml->getChildIterator())
+            {
+                int idx = slotXml->getIntAttribute("index", -1);
+                if (idx < 0 || idx >= numInsertSlots) continue;
+
+                if (auto* descXml = slotXml->getChildElement(0))
+                {
+                    juce::PluginDescription desc;
+                    desc.loadFromXml(*descXml);
+                    loadExternalPlugin(idx, desc);
+
+                    if (externalPlugins_[idx])
+                    {
+                        auto stateB64 = slotXml->getStringAttribute("state");
+                        if (stateB64.isNotEmpty())
+                        {
+                            juce::MemoryBlock state;
+                            state.fromBase64Encoding(stateB64);
+                            externalPlugins_[idx]->setStateInformation(state.getData(), (int)state.getSize());
+                        }
+                        externalPluginBypassed_[idx] = slotXml->getBoolAttribute("bypassed", false);
+                    }
+                }
+            }
+        }
+
         // Remove custom children before restoring APVTS state
         xml->deleteAllChildElementsWithTagName("PluginVersion");
         xml->deleteAllChildElementsWithTagName("SectionOrder");
         xml->deleteAllChildElementsWithTagName("Inserts");
+        xml->deleteAllChildElementsWithTagName("ExternalPlugins");
         apvts.replaceState(juce::ValueTree::fromXml(*xml));
     }
 }

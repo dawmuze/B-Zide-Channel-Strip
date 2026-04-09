@@ -40,13 +40,23 @@ public:
     {
         for (int i = 0; i < numSlots; ++i)
         {
-            auto& slot = processor_.insertSlots_[i];
             auto& btn = slotBtns_[i];
 
-            if (slot.isLoaded())
+            if (processor_.isSlotExternal(i))
             {
-                btn.setButtonText(InsertProcessor::getModuleName(slot.getModuleType()));
-                if (slot.isBypassed())
+                auto* ext = processor_.getExternalPlugin(i);
+                juce::String name = ext ? ext->getName() : "External";
+                if (name.length() > 12) name = name.substring(0, 10) + "..";
+                btn.setButtonText(name);
+                btn.setColour(juce::TextButton::buttonColourId, juce::Colour(0xFF2E3E2E));
+                btn.setColour(juce::TextButton::textColourOffId,
+                    processor_.externalPluginBypassed_[i] ? juce::Colour(0xFF886644) : juce::Colour(0xFF44DD44));
+            }
+            else if (processor_.insertSlots_[i].isLoaded())
+            {
+                auto name = InsertProcessor::getModuleName(processor_.insertSlots_[i].getModuleType());
+                btn.setButtonText(name);
+                if (processor_.insertSlots_[i].isBypassed())
                 {
                     btn.setColour(juce::TextButton::buttonColourId, juce::Colour(0xFF2E3E2E));
                     btn.setColour(juce::TextButton::textColourOffId, juce::Colour(0xFF886644));
@@ -76,7 +86,8 @@ protected:
         {
             for (int i = 0; i < numSlots; ++i)
             {
-                if (slotBtns_[i].getBounds().contains(pos) && processor_.insertSlots_[i].isLoaded())
+                if (slotBtns_[i].getBounds().contains(pos) &&
+                    (processor_.insertSlots_[i].isLoaded() || processor_.isSlotExternal(i)))
                 {
                     showSlotContextMenu(i);
                     return;
@@ -89,7 +100,8 @@ protected:
         {
             for (int i = 0; i < numSlots; ++i)
             {
-                if (slotBtns_[i].getBounds().contains(pos) && processor_.insertSlots_[i].isLoaded())
+                if (slotBtns_[i].getBounds().contains(pos) &&
+                    (processor_.insertSlots_[i].isLoaded() || processor_.isSlotExternal(i)))
                 {
                     dragSourceSlot_ = i;
                     dragActive_ = false; // not dragging yet, just mouseDown
@@ -256,7 +268,22 @@ protected:
             for (int i = 0; i < numSlots; ++i)
             {
                 int dotY = diagramY + (i + 1) * dotSpacing;
-                if (processor_.insertSlots_[i].isLoaded())
+                if (processor_.isSlotExternal(i))
+                {
+                    juce::Colour dotCol = processor_.externalPluginBypassed_[i]
+                        ? juce::Colour(0xFF886644)
+                        : juce::Colour(0xFF44DD44);
+                    g.setColour(dotCol);
+                    g.fillEllipse((float)(cx - 3), (float)(dotY - 3), 6.0f, 6.0f);
+
+                    g.setColour(dotCol.withAlpha(0.7f));
+                    auto* ext = processor_.getExternalPlugin(i);
+                    juce::String name = ext ? ext->getName() : "External";
+                    if (name.length() > 10) name = name.substring(0, 8) + "..";
+                    g.drawText(name, cx + 8, dotY - 6, sectionWidth - cx - 14, 12,
+                               juce::Justification::centredLeft);
+                }
+                else if (processor_.insertSlots_[i].isLoaded())
                 {
                     juce::Colour dotCol = processor_.insertSlots_[i].isBypassed()
                         ? juce::Colour(0xFF886644)
@@ -347,78 +374,156 @@ private:
 
     void onSlotClicked(int slotIndex)
     {
-        auto& slot = processor_.insertSlots_[slotIndex];
+        // If slot has external plugin, toggle bypass
+        if (processor_.isSlotExternal(slotIndex))
+        {
+            processor_.externalPluginBypassed_[slotIndex] = !processor_.externalPluginBypassed_[slotIndex];
+            syncSlotsFromProcessor();
+            repaint();
+            return;
+        }
 
+        auto& slot = processor_.insertSlots_[slotIndex];
         if (slot.isLoaded())
         {
-            // Toggle bypass on left-click
-            bool newBypass = !slot.isBypassed();
-            processor_.setInsertBypass(slotIndex, newBypass);
+            // Toggle bypass (existing behavior)
+            processor_.setInsertBypass(slotIndex, !slot.isBypassed());
             syncSlotsFromProcessor();
+            repaint();
+            return;
         }
-        else
-        {
-            // Show module picker menu
-            juce::PopupMenu menu;
-            menu.addItem(1, "Saturation");
-            menu.addItem(2, "Compressor");
-            menu.addItem(3, "Gate");
-            menu.addItem(4, "De-Esser");
-            menu.addItem(5, "Limiter");
-            menu.addItem(6, "LA-2A");
 
-            menu.showMenuAsync(
-                juce::PopupMenu::Options().withTargetComponent(&slotBtns_[(size_t)slotIndex]),
-                [this, slotIndex](int result)
-                {
-                    if (result > 0)
-                    {
-                        processor_.loadInsert(slotIndex,
-                            static_cast<InsertProcessor::ModuleType>(result));
-                        syncSlotsFromProcessor();
-                        repaint();
-                    }
-                });
+        // Empty slot — show menu with internal + external plugins
+        juce::PopupMenu menu;
+
+        // Internal modules submenu
+        juce::PopupMenu internalMenu;
+        internalMenu.addItem(1, "Saturation");
+        internalMenu.addItem(2, "Compressor");
+        internalMenu.addItem(3, "Gate");
+        internalMenu.addItem(4, "De-Esser");
+        internalMenu.addItem(5, "Limiter");
+        internalMenu.addItem(6, "LA-2A");
+        menu.addSubMenu("Internal", internalMenu);
+
+        menu.addSeparator();
+        menu.addItem(99, "Scan for Plugins...");
+
+        // External plugins (from scanned list)
+        auto& knownPlugins = processor_.getKnownPluginList();
+        auto types = knownPlugins.getTypes();
+        if (!types.isEmpty())
+        {
+            menu.addSeparator();
+
+            // Group by format
+            juce::PopupMenu vst3Menu, auMenu;
+            int extId = 100;
+            for (auto& desc : types)
+            {
+                if (desc.pluginFormatName == "VST3")
+                    vst3Menu.addItem(extId, desc.name);
+                else if (desc.pluginFormatName == "AudioUnit")
+                    auMenu.addItem(extId, desc.name);
+                extId++;
+            }
+            if (vst3Menu.getNumItems() > 0) menu.addSubMenu("VST3", vst3Menu);
+            if (auMenu.getNumItems() > 0) menu.addSubMenu("AU", auMenu);
         }
+
+        menu.showMenuAsync(
+            juce::PopupMenu::Options().withTargetComponent(&slotBtns_[(size_t)slotIndex]),
+            [this, slotIndex, types](int result)
+            {
+                if (result >= 1 && result <= 6)
+                {
+                    processor_.loadInsert(slotIndex, static_cast<InsertProcessor::ModuleType>(result));
+                }
+                else if (result == 99)
+                {
+                    // Scan for plugins (run on background thread)
+                    juce::Thread::launch([this]() {
+                        processor_.scanForPlugins();
+                        juce::MessageManager::callAsync([this]() { repaint(); });
+                    });
+                }
+                else if (result >= 100)
+                {
+                    int pluginIdx = result - 100;
+                    if (pluginIdx < types.size())
+                        processor_.loadExternalPlugin(slotIndex, types[pluginIdx]);
+                }
+                syncSlotsFromProcessor();
+                repaint();
+            });
     }
 
     void showSlotContextMenu(int slotIndex)
     {
-        auto& slot = processor_.insertSlots_[slotIndex];
-        if (!slot.isLoaded()) return;
+        bool isExternal = processor_.isSlotExternal(slotIndex);
+        bool isInternal = !isExternal && processor_.insertSlots_[slotIndex].isLoaded();
+
+        if (!isExternal && !isInternal) return;
 
         juce::PopupMenu menu;
-        menu.addItem(1, slot.isBypassed() ? "Enable" : "Bypass");
-        menu.addItem(2, "Remove");
-        menu.addSeparator();
 
-        // Move options
-        if (slotIndex > 0)
-            menu.addItem(10, "Move Up");
-        if (slotIndex < numSlots - 1)
-            menu.addItem(11, "Move Down");
+        if (isExternal)
+        {
+            menu.addItem(1, processor_.externalPluginBypassed_[slotIndex] ? "Enable" : "Bypass");
+            menu.addItem(2, "Remove");
+            menu.addItem(3, "Open Editor");
+        }
+        else
+        {
+            menu.addItem(1, processor_.insertSlots_[slotIndex].isBypassed() ? "Enable" : "Bypass");
+            menu.addItem(2, "Remove");
+        }
+
+        menu.addSeparator();
+        if (slotIndex > 0) menu.addItem(10, "Move Up");
+        if (slotIndex < numSlots - 1) menu.addItem(11, "Move Down");
 
         menu.showMenuAsync(
             juce::PopupMenu::Options().withTargetComponent(&slotBtns_[(size_t)slotIndex]),
-            [this, slotIndex](int result)
+            [this, slotIndex, isExternal](int result)
             {
                 if (result == 1)
                 {
-                    bool newBypass = !processor_.insertSlots_[slotIndex].isBypassed();
-                    processor_.setInsertBypass(slotIndex, newBypass);
+                    if (isExternal)
+                        processor_.externalPluginBypassed_[slotIndex] = !processor_.externalPluginBypassed_[slotIndex];
+                    else
+                        processor_.setInsertBypass(slotIndex, !processor_.insertSlots_[slotIndex].isBypassed());
                 }
                 else if (result == 2)
                 {
-                    processor_.removeInsert(slotIndex);
+                    if (isExternal)
+                        processor_.removeExternalPlugin(slotIndex);
+                    else
+                        processor_.removeInsert(slotIndex);
+                }
+                else if (result == 3 && isExternal)
+                {
+                    // Open external plugin editor in new window
+                    if (auto* ext = processor_.getExternalPlugin(slotIndex))
+                    {
+                        if (auto* editor = ext->createEditor())
+                        {
+                            auto* window = new juce::DocumentWindow(
+                                ext->getName(), juce::Colours::darkgrey,
+                                juce::DocumentWindow::closeButton | juce::DocumentWindow::minimiseButton);
+                            window->setContentOwned(editor, true);
+                            window->setUsingNativeTitleBar(true);
+                            window->setVisible(true);
+                            window->setAlwaysOnTop(true);
+                            window->centreWithSize(editor->getWidth(), editor->getHeight());
+                        }
+                    }
                 }
                 else if (result == 10)
-                {
                     processor_.swapInserts(slotIndex, slotIndex - 1);
-                }
                 else if (result == 11)
-                {
                     processor_.swapInserts(slotIndex, slotIndex + 1);
-                }
+
                 syncSlotsFromProcessor();
                 repaint();
             });

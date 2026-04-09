@@ -226,6 +226,22 @@ public:
     void swapInserts(int indexA, int indexB);
     void processInserts(juce::AudioBuffer<float>& buffer);
 
+    // ── External Plugin Hosting ──
+    juce::AudioPluginFormatManager formatManager_;
+    juce::KnownPluginList knownPlugins_;
+    std::unique_ptr<juce::AudioPluginInstance> externalPlugins_[numInsertSlots];
+    bool isExternalPlugin_[numInsertSlots] = {};
+    juce::PluginDescription externalPluginDescs_[numInsertSlots];
+    bool externalPluginBypassed_[numInsertSlots] = {};
+
+    void scanForPlugins();
+    void loadExternalPlugin(int slotIndex, const juce::PluginDescription& desc);
+    void removeExternalPlugin(int slotIndex);
+    juce::KnownPluginList& getKnownPluginList() { return knownPlugins_; }
+    juce::AudioPluginFormatManager& getFormatManager() { return formatManager_; }
+    bool isSlotExternal(int i) const { return isExternalPlugin_[i]; }
+    juce::AudioPluginInstance* getExternalPlugin(int i) { return externalPlugins_[i].get(); }
+
 private:
     juce::AudioProcessorValueTreeState apvts;
     LicenseValidator licenseValidator_;
