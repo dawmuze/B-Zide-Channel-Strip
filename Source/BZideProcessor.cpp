@@ -151,6 +151,10 @@ juce::AudioProcessorValueTreeState::ParameterLayout BZideProcessor::createParame
     // ── Master Bypass (IN button) ──
     layout.add(std::make_unique<juce::AudioParameterBool>(juce::ParameterID("master_bypass", 1), "Master Bypass", false));
 
+    // ── VU Meter Calibration ──
+    layout.add(std::make_unique<juce::AudioParameterFloat>(juce::ParameterID("vu_cal", 1), "VU Calibration",
+        juce::NormalisableRange<float>(0.0f, 24.0f, 0.1f), 18.0f)); // 0dBVU = -18dBFS default
+
     return layout;
 }
 

@@ -186,6 +186,11 @@ public:
         else
             limGrSmoothed += (grTarget - limGrSmoothed) * 0.05f;
 
+        // Update VU calibration from parameter
+        float vuCal = *processor.getAPVTS().getRawParameterValue("vu_cal");
+        vuMeterIn.getMeterFace().getBallistics().setReferenceLevel(vuCal);
+        vuMeterOut.getMeterFace().getBallistics().setReferenceLevel(vuCal);
+
         // VU meter display based on selection
         if (meterSelIn.getToggleState())
         {
