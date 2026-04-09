@@ -20,7 +20,7 @@ public:
         for (auto* b : { &meterSelIn, &meterSelGR, &meterSelOut })
         {
             b->setClickingTogglesState(true);
-            b->setRadioGroupId(9001);
+            b->setRadioGroupId(9600);
             b->setColour(juce::TextButton::buttonOnColourId, juce::Colour(0xFF8B1515));
             addAndMakeVisible(b);
         }

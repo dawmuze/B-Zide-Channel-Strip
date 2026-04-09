@@ -21,7 +21,7 @@ public:
             for (auto* b : { &stBtn, &duoBtn, &msBtn })
             {
                 b->setClickingTogglesState(true);
-                b->setRadioGroupId(9000 + (int)id);
+                b->setRadioGroupId(9100 + (int)id); // 9100-9105, distinct from OutputSection routing (9600)
                 addAndMakeVisible(b);
             }
             stBtn.setToggleState(true, juce::dontSendNotification);
