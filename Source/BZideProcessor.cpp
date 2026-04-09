@@ -154,10 +154,10 @@ juce::AudioProcessorValueTreeState::ParameterLayout BZideProcessor::createParame
 
 void BZideProcessor::prepareToPlay(double sampleRate, int samplesPerBlock)
 {
+    // Validate inputs (some hosts pass 0 or invalid values)
+    if (sampleRate <= 0) sampleRate = 44100.0;
+    if (samplesPerBlock <= 0) samplesPerBlock = 512;
     currentSampleRate_ = sampleRate;
-
-    if (licenseValidator_.isTrial())
-        licenseValidator_.checkTrial();
 
     saturation_.prepare(sampleRate, samplesPerBlock);
     deEsser_.prepare(sampleRate, samplesPerBlock);
@@ -230,6 +230,14 @@ void BZideProcessor::releaseResources() {}
 void BZideProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiBuffer&)
 {
     juce::ScopedNoDenormals noDenormals;
+
+    // Guard: empty buffer (some hosts send 0-sample blocks)
+    if (buffer.getNumSamples() == 0) return;
+
+    // Guard: buffer larger than prepared — resize pre-allocated buffers
+    if (buffer.getNumSamples() > preDryBuffer_.getNumSamples())
+        preDryBuffer_.setSize(juce::jmax(2, buffer.getNumChannels()),
+                              buffer.getNumSamples(), false, false, true);
 
     // Apply pending insert swap on audio thread (FIX 8)
     {

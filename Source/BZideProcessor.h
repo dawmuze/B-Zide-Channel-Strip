@@ -180,7 +180,7 @@ public:
     static constexpr int fftOrder = 11;
     static constexpr int fftSize = 1 << fftOrder; // 2048
     float fftData[2 * fftSize] = {};
-    bool nextFFTBlockReady = false;
+    std::atomic<bool> nextFFTBlockReady { false };
     std::atomic<int> fifoIndex{0};
     float fifo[fftSize] = {};
     void pushNextSampleIntoFifo(float sample);
