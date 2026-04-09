@@ -746,6 +746,13 @@ void BZideProcessor::getStateInformation(juce::MemoryBlock& destData)
     auto state = apvts.copyState();
     std::unique_ptr<juce::XmlElement> xml(state.createXml());
 
+    // State version for backward compatibility
+    auto* versionXml = xml->createNewChildElement("PluginVersion");
+    versionXml->setAttribute("major", 1);
+    versionXml->setAttribute("minor", 0);
+    versionXml->setAttribute("patch", 0);
+    versionXml->setAttribute("paramCount", 64);
+
     // Save section order
     auto* orderXml = xml->createNewChildElement("SectionOrder");
     for (int i = 0; i < 6; ++i)
@@ -769,14 +776,31 @@ void BZideProcessor::setStateInformation(const void* data, int sizeInBytes)
     std::unique_ptr<juce::XmlElement> xml(getXmlFromBinary(data, sizeInBytes));
     if (xml && xml->hasTagName(apvts.state.getType()))
     {
-        // Restore section order
+        // Restore section order (with validation)
         if (auto* orderXml = xml->getChildByName("SectionOrder"))
         {
             for (int i = 0; i < 6; ++i)
-                sectionOrder_[i].store(orderXml->getIntAttribute("s" + juce::String(i), i));
+            {
+                int val = orderXml->getIntAttribute("s" + juce::String(i), i);
+                if (val < 0 || val > 5) val = i; // clamp invalid indices to default
+                sectionOrder_[i].store(val);
+            }
+
+            // Validate permutation: check for duplicates
+            bool seen[6] = {};
+            bool valid = true;
+            for (int i = 0; i < 6; ++i)
+            {
+                int v = sectionOrder_[i].load();
+                if (seen[v]) { valid = false; break; }
+                seen[v] = true;
+            }
+            if (!valid) // reset to default order if duplicates found
+                for (int i = 0; i < 6; ++i)
+                    sectionOrder_[i].store(i);
         }
 
-        // Restore insert slots
+        // Restore insert slots (with enum validation)
         if (auto* insertsXml = xml->getChildByName("Inserts"))
         {
             for (auto* slotXml : insertsXml->getChildIterator())
@@ -785,17 +809,20 @@ void BZideProcessor::setStateInformation(const void* data, int sizeInBytes)
                 int mod = slotXml->getIntAttribute("module", 0);
                 bool byp = slotXml->getBoolAttribute("bypassed", false);
 
-                if (idx >= 0 && idx < numInsertSlots && mod > 0)
+                // Validate: index in range, module type in valid enum range [1..6]
+                if (idx >= 0 && idx < numInsertSlots && mod >= 1 && mod <= 6)
                 {
+                    double sr = currentSampleRate_ > 0 ? currentSampleRate_ : 44100.0;
+                    int bs = getBlockSize() > 0 ? getBlockSize() : 512;
                     insertSlots_[idx].loadModule(
-                        static_cast<InsertProcessor::ModuleType>(mod),
-                        currentSampleRate_, getBlockSize());
+                        static_cast<InsertProcessor::ModuleType>(mod), sr, bs);
                     insertSlots_[idx].setBypass(byp);
                 }
             }
         }
 
         // Remove custom children before restoring APVTS state
+        xml->deleteAllChildElementsWithTagName("PluginVersion");
         xml->deleteAllChildElementsWithTagName("SectionOrder");
         xml->deleteAllChildElementsWithTagName("Inserts");
         apvts.replaceState(juce::ValueTree::fromXml(*xml));
