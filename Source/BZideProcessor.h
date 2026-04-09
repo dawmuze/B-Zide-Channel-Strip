@@ -279,5 +279,12 @@ private:
     // Pending insert swap for thread safety (FIX 8)
     std::atomic<int> pendingSwapA_{-1}, pendingSwapB_{-1};
 
+    // Previous gain values for smooth ramping (avoid clicks on automation)
+    float prevInputGain_ = 1.0f;
+    float prevOutputGain_ = 1.0f;
+    float prevDsOutputGain_ = 1.0f;
+    float prevCompOutputGain_ = 1.0f;
+    float prevFaderGain_ = 1.0f;
+
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(BZideProcessor)
 };

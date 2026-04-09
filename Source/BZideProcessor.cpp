@@ -213,6 +213,13 @@ void BZideProcessor::prepareToPlay(double sampleRate, int samplesPerBlock)
     cachedLowrideBoost_ = -1;
     cachedPreLpf_ = -1;
 
+    // Reset previous gain values for smooth ramping
+    prevInputGain_ = 1.0f;
+    prevOutputGain_ = 1.0f;
+    prevDsOutputGain_ = 1.0f;
+    prevCompOutputGain_ = 1.0f;
+    prevFaderGain_ = 1.0f;
+
     updateEQ();
 }
 
@@ -295,10 +302,11 @@ void BZideProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiBu
             juce::FloatVectorOperations::negate(buffer.getWritePointer(1), buffer.getWritePointer(1), buffer.getNumSamples());
     }
 
-    // Phase 3C: Output fader BEFORE limiter (so limiter catches fader boost)
+    // Phase 3C: Output fader BEFORE limiter (ramped to avoid clicks on automation)
     float faderDb = *apvts.getRawParameterValue("out_fader");
     float faderGain = juce::Decibels::decibelsToGain(faderDb);
-    buffer.applyGain(faderGain);
+    buffer.applyGainRamp(0, buffer.getNumSamples(), prevFaderGain_, faderGain);
+    prevFaderGain_ = faderGain;
 
     // ── LIMITER ──
     {
@@ -491,8 +499,9 @@ void BZideProcessor::processPre(juce::AudioBuffer<float>& buffer)
             preDryBuffer_.copyFrom(ch, 0, buffer, ch, 0, buffer.getNumSamples());
     }
 
-    // Apply input gain
-    buffer.applyGain(inputGain);
+    // Apply input gain (ramped to avoid clicks on automation)
+    buffer.applyGainRamp(0, buffer.getNumSamples(), prevInputGain_, inputGain);
+    prevInputGain_ = inputGain;
 
     // Process saturation
     saturation_.setBypass(false);
@@ -558,8 +567,9 @@ void BZideProcessor::processPre(juce::AudioBuffer<float>& buffer)
         }
     }
 
-    // Apply output gain
-    buffer.applyGain(outputGain);
+    // Apply output gain (ramped to avoid clicks on automation)
+    buffer.applyGainRamp(0, buffer.getNumSamples(), prevOutputGain_, outputGain);
+    prevOutputGain_ = outputGain;
 }
 
 void BZideProcessor::processEQ(juce::AudioBuffer<float>& buffer)
@@ -593,9 +603,10 @@ void BZideProcessor::processDS2(juce::AudioBuffer<float>& buffer)
             *apvts.getRawParameterValue("ds_thresh2"), -12.0f);
         deEsser_.process(buffer);
 
-        // Apply output gain
+        // Apply output gain (ramped to avoid clicks on automation)
         float dsOutGain = juce::Decibels::decibelsToGain((float)*apvts.getRawParameterValue("ds_output"));
-        buffer.applyGain(dsOutGain);
+        buffer.applyGainRamp(0, buffer.getNumSamples(), prevDsOutputGain_, dsOutGain);
+        prevDsOutputGain_ = dsOutGain;
     }
 }
 
@@ -623,9 +634,10 @@ void BZideProcessor::processComp(juce::AudioBuffer<float>& buffer)
     compressor_.process(buffer);
     gainReduction.store(compressor_.getGainReduction());
 
-    // Apply comp output gain
+    // Apply comp output gain (ramped to avoid clicks on automation)
     float compOutGain = juce::Decibels::decibelsToGain((float)*apvts.getRawParameterValue("comp_output"));
-    buffer.applyGain(compOutGain);
+    buffer.applyGainRamp(0, buffer.getNumSamples(), prevCompOutputGain_, compOutGain);
+    prevCompOutputGain_ = compOutGain;
 }
 
 void BZideProcessor::processGate(juce::AudioBuffer<float>& buffer)
