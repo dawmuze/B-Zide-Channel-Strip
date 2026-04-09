@@ -152,9 +152,8 @@ public:
         else
             outputMeterLevel += (outTarget - outputMeterLevel) * 0.05f;
 
-        // Update input faders to show input level (display-only)
-        inFaderL.setValue(processor.inputLevelL.load(), juce::dontSendNotification);
-        inFaderR.setValue(processor.inputLevelR.load(), juce::dontSendNotification);
+        // Input faders are display-only — show input level via LED meters only
+        // Do NOT update fader values (that would make them bounce with audio)
 
         // Mirror output fader R from L (only when linked)
         if (linkBtn.getToggleState())
@@ -175,8 +174,9 @@ public:
         }
         else if (meterSelGR.getToggleState())
         {
-            vuMeterIn.setLevel(grLevel);
-            vuMeterOut.setLevel(grLevel);
+            float compGR = processor.gainReduction.load();
+            vuMeterIn.setLevel(-compGR);
+            vuMeterOut.setLevel(-limGrSmoothed);
         }
         else
         {
