@@ -114,7 +114,7 @@ juce::AudioProcessorValueTreeState::ParameterLayout BZideProcessor::createParame
     layout.add(std::make_unique<juce::AudioParameterFloat>(juce::ParameterID("out_limiter_thresh", 1), "Limiter Thresh",
         juce::NormalisableRange<float>(-30.0f, 0.0f, 0.1f), -10.0f));
     layout.add(std::make_unique<juce::AudioParameterFloat>(juce::ParameterID("out_limiter_ceiling", 1), "Limiter Ceiling",
-        juce::NormalisableRange<float>(-12.0f, 0.0f, 0.1f), -0.2f));
+        juce::NormalisableRange<float>(-12.0f, 0.0f, 0.1f), -1.0f));
     layout.add(std::make_unique<juce::AudioParameterFloat>(juce::ParameterID("out_limiter_release", 1), "Limiter Release",
         juce::NormalisableRange<float>(0.01f, 100.0f, 0.01f, 0.3f), 50.0f));
     layout.add(std::make_unique<juce::AudioParameterBool>(juce::ParameterID("out_phase_l", 1), "Phase Invert L", false));
@@ -240,6 +240,17 @@ void BZideProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiBu
         }
     }
 
+    // Phase 3A: Soft-clip protection between sections and output
+    {
+        for (int ch = 0; ch < buffer.getNumChannels(); ++ch)
+            for (int i = 0; i < buffer.getNumSamples(); ++i)
+            {
+                float s = buffer.getSample(ch, i);
+                if (std::abs(s) > 4.0f)
+                    buffer.setSample(ch, i, std::tanh(s * 0.25f) * 4.0f);
+            }
+    }
+
     // ── PHASE INVERT ──
     {
         bool phaseL = *apvts.getRawParameterValue("out_phase_l") > 0.5f;
@@ -249,6 +260,11 @@ void BZideProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiBu
         if (phaseR && buffer.getNumChannels() > 1)
             juce::FloatVectorOperations::negate(buffer.getWritePointer(1), buffer.getWritePointer(1), buffer.getNumSamples());
     }
+
+    // Phase 3C: Output fader BEFORE limiter (so limiter catches fader boost)
+    float faderDb = *apvts.getRawParameterValue("out_fader");
+    float faderGain = juce::Decibels::decibelsToGain(faderDb);
+    buffer.applyGain(faderGain);
 
     // ── LIMITER ──
     {
@@ -271,11 +287,6 @@ void BZideProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiBu
                 }
         }
     }
-
-    // ── OUTPUT FADER ──
-    float faderDb = *apvts.getRawParameterValue("out_fader");
-    float faderGain = juce::Decibels::decibelsToGain(faderDb);
-    buffer.applyGain(faderGain);
 
     // ── OUTPUT MODE ──
     int outMode = static_cast<int>(*apvts.getRawParameterValue("out_mode"));
@@ -578,16 +589,18 @@ void BZideProcessor::processGate(juce::AudioBuffer<float>& buffer)
 
 void BZideProcessor::pushNextSampleIntoFifo(float sample)
 {
-    if (fifoIndex == fftSize)
+    int idx = fifoIndex.load();
+    if (idx == fftSize)
     {
         if (!nextFFTBlockReady)
         {
             std::copy(fifo, fifo + fftSize, fftData);
             nextFFTBlockReady = true;
         }
-        fifoIndex = 0;
+        idx = 0;
     }
-    fifo[fifoIndex++] = sample;
+    fifo[idx] = sample;
+    fifoIndex.store(idx + 1);
 }
 
 // ── Insert slot management ──────────────────────────────────────────

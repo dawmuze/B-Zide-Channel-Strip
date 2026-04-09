@@ -20,6 +20,8 @@ public:
         envelope_ = 0.0f;
         lastGainLin_ = 1.0f;
         rmsSum_ = 0.0f;
+        smoothedGain_ = 1.0f;
+        rmsEnv_ = 0.0f;
 
         // Prepare SC HPF filters (100 Hz high-pass)
         auto hpfCoeffs = juce::dsp::IIR::Coefficients<float>::makeHighPass(sampleRate, 100.0f);
@@ -79,9 +81,11 @@ public:
             }
             else
             {
-                // RMS detection — squared samples into envelope, then sqrt
-                float sq = std::max(detL * detL, detR * detR);
-                level = sq; // envelope will smooth, we sqrt after
+                // RMS detection — proper envelope with ~10ms window
+                float peak = std::max(std::abs(detL), std::abs(detR));
+                float rmsCoeff = std::exp(-1.0f / (float)(sr_ * 0.010));
+                rmsEnv_ = rmsCoeff * rmsEnv_ + (1.0f - rmsCoeff) * (peak * peak);
+                level = std::sqrt(rmsEnv_);
             }
 
             // Feed-back topology: multiply detected level by last gain reduction
@@ -111,13 +115,21 @@ public:
 
             float gainLin = juce::Decibels::decibelsToGain(gr) * makeupLin;
             lastGainLin_ = juce::Decibels::decibelsToGain(gr); // store raw GR for FB
+            lastGainLin_ = juce::jmax(0.01f, lastGainLin_); // Phase 1D: FB stability clamp
             peakGR = std::min(peakGR, gr);
+
+            // Phase 1B: Anti-zipper smoothing (~2ms at 44.1kHz)
+            float smoothCoeff = 0.9995f;
+            smoothedGain_ = smoothCoeff * smoothedGain_ + (1.0f - smoothCoeff) * gainLin;
 
             // Apply gain with mix (parallel compression)
             for (int ch = 0; ch < buffer.getNumChannels(); ++ch)
             {
                 float dry = buffer.getSample(ch, i);
-                float wet = dry * gainLin;
+                float wet = dry * smoothedGain_;
+                // Phase 4B: FET character — subtle tanh saturation
+                if (model_ == FET)
+                    wet = std::tanh(wet * 1.1f) * 0.909f;
                 buffer.setSample(ch, i, dry * (1.0f - mix_) + wet * mix_);
             }
         }
@@ -141,6 +153,8 @@ private:
     float envelope_ = 0.0f;
     float lastGainLin_ = 1.0f;
     float rmsSum_ = 0.0f;
+    float smoothedGain_ = 1.0f;   // Phase 1B: anti-zipper
+    float rmsEnv_ = 0.0f;         // Phase 1C: proper RMS envelope
     std::atomic<float> currentGR_ { 0.0f };
 
     // Sidechain HPF filters (one per channel)

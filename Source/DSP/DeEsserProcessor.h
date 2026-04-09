@@ -40,8 +40,8 @@ public:
             envelope_[b] = 0.0f;
         }
 
-        // Envelope follower coefficients (~5ms attack, ~50ms release)
-        attackCoeff_ = 1.0f - std::exp(-1.0f / (float)(sampleRate * 0.005));
+        // Envelope follower coefficients (~1ms attack, ~50ms release)
+        attackCoeff_ = 1.0f - std::exp(-1.0f / (float)(sampleRate * 0.001));
         releaseCoeff_ = 1.0f - std::exp(-1.0f / (float)(sampleRate * 0.050));
     }
 
@@ -98,7 +98,7 @@ private:
     {
         if (sampleRate_ <= 0) return;
         float freq = juce::jlimit(200.0f, 20000.0f, bands_[b].frequency);
-        float Q = 2.0f; // Fairly narrow for sibilance targeting
+        float Q = 3.5f; // Narrow, focused on sibilance
 
         auto coeffs = juce::dsp::IIR::Coefficients<float>::makeBandPass(sampleRate_, freq, Q);
         *bandpassL_[b].coefficients = *coeffs;
@@ -141,7 +141,7 @@ private:
             if (envelope_[b] > thresh && thresh > 0.0f)
             {
                 float overDb = juce::Decibels::gainToDecibels(envelope_[b] / thresh);
-                gr = juce::jmax(maxGR, -overDb * 0.5f); // 2:1 ratio on sibilance
+                gr = juce::jmax(maxGR, -overDb * 0.25f); // 4:1 ratio on sibilance
             }
 
             float gainLin = juce::Decibels::decibelsToGain(gr);

@@ -181,7 +181,7 @@ public:
     static constexpr int fftSize = 1 << fftOrder; // 2048
     float fftData[2 * fftSize] = {};
     bool nextFFTBlockReady = false;
-    int fifoIndex = 0;
+    std::atomic<int> fifoIndex{0};
     float fifo[fftSize] = {};
     void pushNextSampleIntoFifo(float sample);
 

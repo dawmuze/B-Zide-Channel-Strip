@@ -1,6 +1,7 @@
 #pragma once
 #include <juce_audio_basics/juce_audio_basics.h>
 #include <cmath>
+#include <vector>
 
 //==============================================================================
 // BZideLimiter — Brickwall limiter for OUTPUT section
@@ -12,6 +13,12 @@ public:
     {
         sr_ = sampleRate;
         envelope_ = 0.0f;
+
+        // Look-ahead delay: ~1ms
+        delaySamples_ = std::max(1, (int)(sampleRate * 0.001));
+        delayWritePos_ = 0;
+        delayBuffer_.clear();
+        delayBuffer_.resize(2, std::vector<float>(delaySamples_, 0.0f));
     }
 
     void setThreshold(float db) { threshold_ = db; }
@@ -30,10 +37,13 @@ public:
 
         float maxGR = 0.0f;
 
+        int numChannels = buffer.getNumChannels();
+
         for (int i = 0; i < buffer.getNumSamples(); ++i)
         {
+            // Detect peak from CURRENT (non-delayed) sample
             float peak = 0.0f;
-            for (int ch = 0; ch < buffer.getNumChannels(); ++ch)
+            for (int ch = 0; ch < numChannels; ++ch)
                 peak = std::max(peak, std::abs(buffer.getSample(ch, i)));
 
             if (peak > envelope_)
@@ -48,8 +58,15 @@ public:
             float grDb = -juce::Decibels::gainToDecibels(gain);
             if (grDb > maxGR) maxGR = grDb;
 
-            for (int ch = 0; ch < buffer.getNumChannels(); ++ch)
-                buffer.setSample(ch, i, buffer.getSample(ch, i) * gain);
+            // Apply gain to DELAYED sample (look-ahead)
+            for (int ch = 0; ch < numChannels; ++ch)
+            {
+                int chIdx = std::min(ch, (int)delayBuffer_.size() - 1);
+                float delayed = delayBuffer_[chIdx][delayWritePos_];
+                delayBuffer_[chIdx][delayWritePos_] = buffer.getSample(ch, i);
+                buffer.setSample(ch, i, delayed * gain);
+            }
+            delayWritePos_ = (delayWritePos_ + 1) % delaySamples_;
         }
 
         gainReduction_ = maxGR;
@@ -62,4 +79,9 @@ private:
     bool bypass_ = true;
     float envelope_ = 0.0f;
     float gainReduction_ = 0.0f;
+
+    // Look-ahead delay buffer (~1ms)
+    std::vector<std::vector<float>> delayBuffer_;
+    int delayWritePos_ = 0;
+    int delaySamples_ = 48;
 };

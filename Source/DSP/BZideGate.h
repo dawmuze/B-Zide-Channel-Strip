@@ -15,6 +15,8 @@ public:
     {
         sr_ = sampleRate;
         envelope_ = 0.0f;
+        gateOpen_ = false;
+        smoothedGateGain_ = 1.0f;
 
         // SC bandpass filters: HPF @ 100Hz + LPF @ 8kHz
         auto hpCoeffs = juce::dsp::IIR::Coefficients<float>::makeHighPass(sampleRate, 100.0f);
@@ -83,18 +85,25 @@ public:
             else
                 envelope_ = releaseCoeff * envelope_ + (1.0f - releaseCoeff) * level;
 
-            // Gate gain
-            float gain = 1.0f;
-            if (envelope_ < threshLin)
-            {
-                if (mode_ == GATE)
-                    gain = floorLin;
-                else // Expander: proportional reduction
-                    gain = std::max(floorLin, envelope_ / threshLin);
-            }
+            // Phase 2A: Gate hysteresis (~4dB between open/close)
+            float openThresh = threshLin;
+            float closeThresh = threshLin * 0.63f; // ~4dB below open threshold
+            if (!gateOpen_ && envelope_ > openThresh) gateOpen_ = true;
+            if (gateOpen_ && envelope_ < closeThresh) gateOpen_ = false;
+
+            // Gate gain based on hysteresis state
+            float attenGain = floorLin;
+            if (mode_ == EXPANDER && !gateOpen_)
+                attenGain = std::max(floorLin, envelope_ / threshLin);
+
+            float targetGain = gateOpen_ ? 1.0f : attenGain;
+
+            // Phase 2B: Gain smoothing (~1ms)
+            float gateSmooth = 0.999f;
+            smoothedGateGain_ = gateSmooth * smoothedGateGain_ + (1.0f - gateSmooth) * targetGain;
 
             for (int ch = 0; ch < buffer.getNumChannels(); ++ch)
-                buffer.setSample(ch, i, buffer.getSample(ch, i) * gain);
+                buffer.setSample(ch, i, buffer.getSample(ch, i) * smoothedGateGain_);
         }
     }
 
@@ -111,6 +120,8 @@ private:
     bool peakDetect_ = true;
     bool scEnabled_ = false;
     float envelope_ = 0.0f;
+    bool gateOpen_ = false;            // Phase 2A: hysteresis state
+    float smoothedGateGain_ = 1.0f;    // Phase 2B: gain smoothing
 
     // Sidechain bandpass filters (HPF + LPF per channel)
     juce::dsp::IIR::Filter<float> scHpfL_, scHpfR_;
