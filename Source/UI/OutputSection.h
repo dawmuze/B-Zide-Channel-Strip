@@ -783,83 +783,94 @@ private:
         return juce::Colour(kLedCyan);
     }
 
-    // ---- Draw one LED meter strip ----
+    // ---- Draw one LED meter strip (Dawmuze DAW mixer style) ----
     // scaleSide: -1 = labels on left, 1 = labels on right, 0 = no labels
+    static constexpr float meterMinDb = -60.0f;
+    static constexpr float meterMaxDb = 6.0f;
+
+    float dbToY(float db, float top, float height) const
+    {
+        float normalized = (db - meterMinDb) / (meterMaxDb - meterMinDb);
+        normalized = juce::jlimit(0.0f, 1.0f, normalized);
+        return top + height * (1.0f - normalized);
+    }
+
     void drawLEDMeterStrip(juce::Graphics& g, juce::Rectangle<int> bounds, float level, int scaleSide) const
     {
         if (bounds.isEmpty()) return;
 
         auto slot = bounds.toFloat();
+        float h = slot.getHeight();
+        float w = slot.getWidth();
+        float top = slot.getY();
 
-        // Recessed slot background
-        g.setColour(juce::Colour(kSlotBg));
-        g.fillRoundedRectangle(slot, 3.0f);
-        g.setColour(juce::Colour(0x30000000));
-        g.drawRoundedRectangle(slot.reduced(0.5f), 3.0f, 1.0f);
+        // Dark background
+        g.setColour(juce::Colour(0xFF0D0D0D));
+        g.fillRoundedRectangle(slot, 2.0f);
 
-        // LED circles
-        float ledDiam = 5.0f;
-        float padX = (slot.getWidth() - ledDiam) * 0.5f;
-        float totalH = slot.getHeight() - 8.0f;
-        float spacing = totalH / (float)(kNumLEDs - 1);
-        float startY = slot.getY() + 4.0f;
+        // Segment dimensions
+        constexpr float segH = 2.0f;
+        constexpr float gapH = 1.0f;
+        constexpr float step = segH + gapH;
 
-        for (int i = 0; i < kNumLEDs; ++i)
+        // Dim segments (always visible — show meter outline)
+        for (float sy = top + h - segH; sy >= top; sy -= step)
         {
-            int drawIndex = kNumLEDs - 1 - i;
-            float ledDb = getLEDdB(drawIndex);
-            float cy = startY + (float)i * spacing;
-            float cx = slot.getX() + padX;
-
-            bool lit = (level >= ledDb);
-
-            if (lit)
-            {
-                juce::Colour col = getLEDColor(ledDb);
-                g.setColour(col.withAlpha(0.15f));
-                g.fillEllipse(cx - 2.0f, cy - 2.0f, ledDiam + 4.0f, ledDiam + 4.0f);
-                g.setColour(col);
-                g.fillEllipse(cx, cy, ledDiam, ledDiam);
-                g.setColour(col.brighter(0.5f).withAlpha(0.6f));
-                g.fillEllipse(cx + 1.5f, cy + 1.0f, 2.0f, 2.0f);
-            }
-            else
-            {
-                g.setColour(juce::Colour(kLedOff));
-                g.fillEllipse(cx, cy, ledDiam, ledDiam);
-            }
+            float norm = 1.0f - ((sy - top) / h); // 0=bottom, 1=top
+            juce::Colour dimCol;
+            if (norm < 0.75f)      dimCol = juce::Colour(0xFF1A0808);
+            else if (norm < 0.88f) dimCol = juce::Colour(0xFF1A1208);
+            else                   dimCol = juce::Colour(0xFF1A0404);
+            g.setColour(dimCol);
+            g.fillRect(slot.getX() + 0.5f, sy, w - 1.0f, segH);
         }
 
-        // dB scale labels
+        // Lit segments (based on level)
+        float levelY = dbToY(level, top, h);
+        for (float sy = top + h - segH; sy >= top; sy -= step)
+        {
+            if (sy < levelY) break; // above the level — stop
+
+            float norm = 1.0f - ((sy - top) / h);
+            juce::Colour col;
+            if (norm < 0.75f)      col = juce::Colour(0xFFCC8800); // warm amber
+            else if (norm < 0.88f) col = juce::Colour(0xFFFF6600); // orange
+            else if (norm < 0.94f) col = juce::Colour(0xFFEE3300); // bright red
+            else                   col = juce::Colour(0xFFFF1100); // hot red
+            g.setColour(col);
+            g.fillRect(slot.getX() + 0.5f, sy, w - 1.0f, segH);
+        }
+
+        // dB tick lines
+        const float dbMarks[] = { 0.0f, -6.0f, -12.0f, -24.0f, -48.0f };
+        for (int i = 0; i < 5; ++i)
+        {
+            float yPos = dbToY(dbMarks[i], top, h);
+            g.setColour(juce::Colours::black.withAlpha(0.6f));
+            g.drawLine(slot.getX(), yPos, slot.getRight(), yPos, 1.0f);
+        }
+
+        // Border
+        g.setColour(juce::Colour(0xFF2A2A30));
+        g.drawRoundedRectangle(slot, 2.0f, 1.0f);
+
+        // dB scale labels (using dbToY for accurate positioning)
         if (scaleSide != 0)
         {
-            g.setColour(juce::Colour(kDimText));
             g.setFont(juce::Font(juce::FontOptions(7.0f)));
 
             struct ScaleMark { float db; const char* label; };
             static constexpr ScaleMark marks[] = {
-                { 12.0f, "12" }, { 0.0f, "0" }, { -6.0f, "-6" },
-                { -12.0f, "-12" }, { -24.0f, "-24" }, { -42.0f, "-42" },
-                { -66.0f, "-66" }, { -90.0f, "-Inf" }
+                { 6.0f, "+6" }, { 0.0f, "0" }, { -6.0f, "-6" },
+                { -12.0f, "-12" }, { -24.0f, "-24" }, { -48.0f, "-48" }
             };
 
             for (auto& m : marks)
             {
-                float norm = 0.0f;
-                for (int i = 0; i < kNumLEDs; ++i)
-                {
-                    if (std::abs(getLEDdB(i) - m.db) < 0.5f)
-                    {
-                        int drawIdx = kNumLEDs - 1 - i;
-                        norm = (float)drawIdx / (float)(kNumLEDs - 1);
-                        break;
-                    }
-                }
-                float my = startY + norm * totalH;
+                float my = dbToY(m.db, top, h);
 
                 if (scaleSide < 0)
                 {
-                    // Left side — tick mark then label
                     g.setColour(juce::Colour(0xFF333338));
                     g.drawHorizontalLine((int)my, slot.getX() - 4.0f, slot.getX() - 1.0f);
                     g.setColour(juce::Colour(kDimText));
@@ -867,7 +878,6 @@ private:
                 }
                 else
                 {
-                    // Right side — tick mark then label
                     g.setColour(juce::Colour(0xFF333338));
                     g.drawHorizontalLine((int)my, slot.getRight() + 1.0f, slot.getRight() + 4.0f);
                     g.setColour(juce::Colour(kDimText));
