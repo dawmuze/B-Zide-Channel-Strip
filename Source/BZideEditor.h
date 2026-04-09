@@ -438,6 +438,7 @@ public:
     void paintOverChildren(juce::Graphics& g) override;
     void resized() override;
     void timerCallback() override;
+    void mouseDown(const juce::MouseEvent& e) override;
 
 private:
     BZideProcessor& processor;
@@ -459,6 +460,26 @@ private:
 
     // Draggable order (indices into SectionId: PRE=0, EQ=1, DS2=2, COMP=3, GATE=4, INSERT=5)
     std::array<SectionId, 6> draggableOrder = { SectionId::PRE, SectionId::EQ, SectionId::DS2, SectionId::COMP, SectionId::GATE, SectionId::INSERT };
+
+    // ── A/B Comparison ──
+    int abState = 0; // 0=A, 1=B
+    bool inActive = true; // IN = plugin bypass toggle
+    juce::XmlElement abSlotA {"A"}, abSlotB {"B"};
+    juce::Rectangle<int> inBtn, aBtn, bBtn, copyBtn, pasteBtn, presetNameArea, prevPresetBtn, nextPresetBtn, menuBtn;
+    void saveCurrentToSlot(juce::XmlElement& slot);
+    void loadSlotToCurrent(const juce::XmlElement& slot);
+
+    // ── Preset System ──
+    struct PresetEntry {
+        juce::String category;
+        juce::String name;
+        juce::XmlElement state {"Preset"};
+    };
+    std::vector<PresetEntry> presetNames;
+    int currentPreset = 0;
+    void initPresets();
+    void loadPreset(int index);
+    void showPresetMenu();
 
     // Get section pointer by SectionId
     ChannelSection* getSectionById(SectionId id);

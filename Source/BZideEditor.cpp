@@ -55,6 +55,20 @@ BZideEditor::BZideEditor(BZideProcessor& p)
     // Set size LAST — this triggers resized() which needs sections to exist
     int totalWidth = kSectionWidth * 6 + kOutputWidth;
     setSize(totalWidth, kTotalHeight);
+
+    // Initialize A/B slots with current state
+    saveCurrentToSlot(abSlotA);
+    saveCurrentToSlot(abSlotB);
+
+    // Init preset names (not full state presets - just names for the menu)
+    initPresets();
+
+    // Style popup menu
+    getLookAndFeel().setColour(juce::PopupMenu::backgroundColourId, juce::Colour(0xFF18181C));
+    getLookAndFeel().setColour(juce::PopupMenu::textColourId, juce::Colours::white.withAlpha(0.85f));
+    getLookAndFeel().setColour(juce::PopupMenu::highlightedBackgroundColourId, juce::Colour(0xFF8B1515));
+    getLookAndFeel().setColour(juce::PopupMenu::highlightedTextColourId, juce::Colours::white);
+    getLookAndFeel().setColour(juce::PopupMenu::headerTextColourId, juce::Colour(0xFFDD6600));
 }
 
 BZideEditor::~BZideEditor()
@@ -138,6 +152,151 @@ void BZideEditor::handleDragEnd(ChannelSection*)
         getSectionById(draggableOrder[(size_t)i])->setDragHighlight(false);
 }
 
+// ── A/B Comparison ──
+void BZideEditor::saveCurrentToSlot(juce::XmlElement& slot)
+{
+    slot.removeAllAttributes();
+    for (auto* param : processor.getParameters())
+    {
+        if (auto* p = dynamic_cast<juce::RangedAudioParameter*>(param))
+            slot.setAttribute(p->getParameterID(), (double)p->getValue());
+    }
+}
+
+void BZideEditor::loadSlotToCurrent(const juce::XmlElement& slot)
+{
+    for (auto* param : processor.getParameters())
+    {
+        if (auto* p = dynamic_cast<juce::RangedAudioParameter*>(param))
+        {
+            if (slot.hasAttribute(p->getParameterID()))
+                p->setValueNotifyingHost((float)slot.getDoubleAttribute(p->getParameterID()));
+        }
+    }
+}
+
+// ── Preset System ──
+void BZideEditor::initPresets()
+{
+    presetNames.clear();
+    presetNames.push_back({"Default", "Init"});
+    presetNames.push_back({"Vocals", "Vocal Chain - Clean"});
+    presetNames.push_back({"Vocals", "Vocal Chain - Warm"});
+    presetNames.push_back({"Vocals", "Vocal Chain - Aggressive"});
+    presetNames.push_back({"Vocals", "De-Ess + Compress"});
+    presetNames.push_back({"Drums", "Drum Bus Glue"});
+    presetNames.push_back({"Drums", "Kick Punch"});
+    presetNames.push_back({"Drums", "Snare Snap"});
+    presetNames.push_back({"Drums", "Parallel Crush"});
+    presetNames.push_back({"Bass", "Bass Smooth"});
+    presetNames.push_back({"Bass", "Bass Aggressive"});
+    presetNames.push_back({"Guitar", "Acoustic Guitar"});
+    presetNames.push_back({"Guitar", "Electric Clean"});
+    presetNames.push_back({"Mix Bus", "Stereo Bus Gentle"});
+    presetNames.push_back({"Mix Bus", "Stereo Bus Medium"});
+    presetNames.push_back({"Mix Bus", "Mix Gel"});
+    presetNames.push_back({"Mastering", "Transparent"});
+    presetNames.push_back({"Mastering", "Warm Analog"});
+    presetNames.push_back({"Mastering", "Loud & Proud"});
+    presetNames.push_back({"Creative", "Lo-Fi Crush"});
+    presetNames.push_back({"Creative", "Tape Saturator"});
+    currentPreset = 0;
+}
+
+void BZideEditor::loadPreset(int index)
+{
+    if (index >= 0 && index < (int)presetNames.size())
+    {
+        currentPreset = index;
+        repaint();
+    }
+}
+
+void BZideEditor::showPresetMenu()
+{
+    juce::PopupMenu menu;
+    juce::String lastCat;
+    int id = 1;
+    for (auto& p : presetNames)
+    {
+        if (p.category != lastCat)
+        {
+            if (lastCat.isNotEmpty()) menu.addSeparator();
+            menu.addSectionHeader(p.category);
+            lastCat = p.category;
+        }
+        menu.addItem(id, p.name, true, id - 1 == currentPreset);
+        id++;
+    }
+
+    menu.showMenuAsync(juce::PopupMenu::Options().withTargetScreenArea(
+        localAreaToGlobal(presetNameArea).toFloat().toNearestInt()),
+        [this](int result) {
+            if (result > 0) {
+                currentPreset = result - 1;
+                repaint();
+            }
+        });
+}
+
+// ── Mouse handling for top/bottom bar ──
+void BZideEditor::mouseDown(const juce::MouseEvent& e)
+{
+    auto pos = e.getPosition();
+
+    if (prevPresetBtn.expanded(2).contains(pos))
+    {
+        if (currentPreset > 0) { currentPreset--; repaint(); }
+        return;
+    }
+    if (nextPresetBtn.expanded(2).contains(pos))
+    {
+        if (currentPreset < (int)presetNames.size() - 1) { currentPreset++; repaint(); }
+        return;
+    }
+    if (presetNameArea.expanded(2).contains(pos))
+    {
+        showPresetMenu();
+        return;
+    }
+    if (inBtn.expanded(2).contains(pos))
+    {
+        inActive = !inActive;
+        repaint();
+        return;
+    }
+    if (aBtn.expanded(2).contains(pos))
+    {
+        if (abState == 1) saveCurrentToSlot(abSlotB);
+        abState = 0;
+        loadSlotToCurrent(abSlotA);
+        repaint();
+        return;
+    }
+    if (bBtn.expanded(2).contains(pos))
+    {
+        if (abState == 0) saveCurrentToSlot(abSlotA);
+        abState = 1;
+        loadSlotToCurrent(abSlotB);
+        repaint();
+        return;
+    }
+    if (copyBtn.expanded(2).contains(pos))
+    {
+        auto& slot = (abState == 0) ? abSlotA : abSlotB;
+        saveCurrentToSlot(slot);
+        repaint();
+        return;
+    }
+    if (pasteBtn.expanded(2).contains(pos))
+    {
+        auto& slot = (abState == 0) ? abSlotA : abSlotB;
+        loadSlotToCurrent(slot);
+        repaint();
+        return;
+    }
+}
+
 void BZideEditor::timerCallback()
 {
     // Update VU meter with output level and repaint
@@ -180,9 +339,90 @@ void BZideEditor::paint(juce::Graphics& g)
     }
 }
 
-void BZideEditor::paintOverChildren(juce::Graphics&)
+void BZideEditor::paintOverChildren(juce::Graphics& g)
 {
-    // LED bombillas removed — bypass state shown by ON button color
+    // ── Bottom Preset/A/B Bar ──
+    {
+        auto barArea = juce::Rectangle<int>(0, getHeight() - 24, getWidth(), 24);
+        g.setColour(juce::Colour(0xF0101014));
+        g.fillRect(barArea);
+        g.setColour(juce::Colour(0xFF2A2A30));
+        g.drawHorizontalLine(barArea.getY(), 0, (float)getWidth());
+
+        float bh = 16.0f;
+        float by = (float)barArea.getY() + ((float)barArea.getHeight() - bh) / 2.0f;
+
+        auto drawBarBtn = [&](juce::Rectangle<float> r, const juce::String& text, bool active, juce::Colour activeCol) {
+            if (active) {
+                g.setColour(activeCol);
+                g.fillRoundedRectangle(r, 3.0f);
+                g.setColour(juce::Colours::white);
+            } else {
+                g.setColour(juce::Colour(0xFF333338));
+                g.fillRoundedRectangle(r, 3.0f);
+                g.setColour(juce::Colour(0xFF888888));
+            }
+            g.setFont(juce::Font(juce::FontOptions(9.0f)).boldened());
+            g.drawText(text, r.toNearestInt(), juce::Justification::centred);
+        };
+
+        float x = 8.0f;
+        float gap = 3.0f;
+
+        // Prev preset
+        auto prevR = juce::Rectangle<float>(x, by, 18.0f, bh);
+        drawBarBtn(prevR, "<", false, juce::Colour(0xFF666666));
+        prevPresetBtn = prevR.toNearestInt();
+        x += 18.0f + gap;
+
+        // Preset name
+        float presetW = 120.0f;
+        auto nameR = juce::Rectangle<float>(x, by, presetW, bh);
+        g.setColour(juce::Colour(0xFF1A1A1E));
+        g.fillRoundedRectangle(nameR, 3.0f);
+        g.setColour(juce::Colour(0xFFCCCCCC));
+        g.setFont(juce::Font(juce::FontOptions(9.0f)));
+        juce::String pName = (currentPreset >= 0 && currentPreset < (int)presetNames.size())
+            ? presetNames[(size_t)currentPreset].name : "Init";
+        g.drawText(pName, nameR.toNearestInt(), juce::Justification::centred);
+        presetNameArea = nameR.toNearestInt();
+        x += presetW + gap;
+
+        // Next preset
+        auto nextR = juce::Rectangle<float>(x, by, 18.0f, bh);
+        drawBarBtn(nextR, ">", false, juce::Colour(0xFF666666));
+        nextPresetBtn = nextR.toNearestInt();
+        x += 18.0f + 12.0f;
+
+        // IN button
+        auto inR = juce::Rectangle<float>(x, by, 24.0f, bh);
+        drawBarBtn(inR, "IN", inActive, juce::Colour(0xFF44BB44));
+        inBtn = inR.toNearestInt();
+        x += 24.0f + gap;
+
+        // A button
+        auto aR = juce::Rectangle<float>(x, by, 22.0f, bh);
+        drawBarBtn(aR, "A", abState == 0, juce::Colour(0xFF4488FF));
+        aBtn = aR.toNearestInt();
+        x += 22.0f + gap;
+
+        // B button
+        auto bR = juce::Rectangle<float>(x, by, 22.0f, bh);
+        drawBarBtn(bR, "B", abState == 1, juce::Colour(0xFF4488FF));
+        bBtn = bR.toNearestInt();
+        x += 22.0f + 8.0f;
+
+        // COPY
+        auto copyR = juce::Rectangle<float>(x, by, 36.0f, bh);
+        drawBarBtn(copyR, "COPY", false, juce::Colour(0xFF666666));
+        copyBtn = copyR.toNearestInt();
+        x += 36.0f + gap;
+
+        // PASTE
+        auto pasteR = juce::Rectangle<float>(x, by, 38.0f, bh);
+        drawBarBtn(pasteR, "PASTE", false, juce::Colour(0xFF666666));
+        pasteBtn = pasteR.toNearestInt();
+    }
 }
 
 void BZideEditor::resized()
