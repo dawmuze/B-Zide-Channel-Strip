@@ -70,10 +70,15 @@ public:
     void setBand(int bandIndex, float frequency, float threshold, float range)
     {
         if (bandIndex < 0 || bandIndex > 1) return;
-        bands_[bandIndex].frequency = frequency;
         bands_[bandIndex].threshold = threshold;
         bands_[bandIndex].range = range;
-        updateBandFilter(bandIndex);
+        // FIX 3: only recalculate bandpass coefficients when freq actually changes
+        if (std::abs(frequency - cachedFreq_[bandIndex]) > 1.0f)
+        {
+            bands_[bandIndex].frequency = frequency;
+            cachedFreq_[bandIndex] = frequency;
+            updateBandFilter(bandIndex);
+        }
     }
 
     void setBandActive(int bandIndex, bool active)
@@ -154,6 +159,7 @@ private:
     }
 
     double sampleRate_ = 44100.0;
+    float cachedFreq_[2] = {-1.0f, -1.0f};  // FIX 3: cached band frequencies
     Band bands_[2];
     juce::dsp::IIR::Filter<float> bandpassL_[2], bandpassR_[2];
     float envelope_[2] = { 0.0f, 0.0f };

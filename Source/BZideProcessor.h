@@ -257,5 +257,27 @@ private:
 
     void updateEQ();
 
+    // Pre-allocated dry buffer for processPre() mix (FIX 2: avoid per-block allocation)
+    juce::AudioBuffer<float> preDryBuffer_;
+
+    // Cached EQ params to avoid per-block coefficient allocation (FIX 1)
+    float cachedHpf_ = -1, cachedLpf_ = -1;
+    float cachedLowF_ = -1, cachedLowG_ = -1, cachedLowQ_ = -1;
+    int cachedLowType_ = -1;
+    float cachedMidF_ = -1, cachedMidG_ = -1, cachedMidQ_ = -1;
+    int cachedMidType_ = -1;
+    float cachedHiF_ = -1, cachedHiG_ = -1, cachedHiQ_ = -1;
+    int cachedHiType_ = -1;
+    int cachedHpfSlope_ = -1, cachedLpfSlope_ = -1;
+
+    // Cached LOWRIDE params (FIX 4)
+    float cachedLowrideBoost_ = -1;
+
+    // Cached Pre-LPF params (FIX 5)
+    float cachedPreLpf_ = -1;
+
+    // Pending insert swap for thread safety (FIX 8)
+    std::atomic<int> pendingSwapA_{-1}, pendingSwapB_{-1};
+
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(BZideProcessor)
 };

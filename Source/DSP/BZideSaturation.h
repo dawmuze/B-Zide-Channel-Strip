@@ -41,9 +41,14 @@ public:
 
         // Update tone filter cutoff: tone=-100 -> 2000Hz, tone=+100 -> 18000Hz
         float cutoff = 2000.0f + (tone_ + 100.0f) * 80.0f;
-        auto coeffs = juce::dsp::IIR::Coefficients<float>::makeLowPass(sr_, cutoff);
-        *toneFilterL_.coefficients = *coeffs;
-        *toneFilterR_.coefficients = *coeffs;
+        // FIX 6: only recalculate when cutoff actually changes
+        if (std::abs(cutoff - cachedToneCutoff_) > 1.0f)
+        {
+            cachedToneCutoff_ = cutoff;
+            auto coeffs = juce::dsp::IIR::Coefficients<float>::makeLowPass(sr_, cutoff);
+            *toneFilterL_.coefficients = *coeffs;
+            *toneFilterR_.coefficients = *coeffs;
+        }
 
         // Upsample
         auto block = juce::dsp::AudioBlock<float>(buffer);
@@ -98,6 +103,7 @@ private:
     Mode mode_ = ODD;
     float drive_ = 0.0f;
     float tone_ = 0.0f;
+    float cachedToneCutoff_ = -1.0f;  // FIX 6: cached tone cutoff
     bool bypass_ = true;
     float dcBlockCoeff_ = 0.995f;
     float dcX_[2] = {}, dcY_[2] = {};

@@ -187,6 +187,18 @@ void BZideProcessor::prepareToPlay(double sampleRate, int samplesPerBlock)
     preLpfL_.coefficients = preLpfCoeffs;
     preLpfR_.coefficients = preLpfCoeffs;
 
+    // Pre-allocate dry buffer (FIX 2)
+    preDryBuffer_.setSize(2, samplesPerBlock);
+
+    // Reset cached params so coefficients are recalculated on first block
+    cachedHpf_ = -1; cachedLpf_ = -1;
+    cachedLowF_ = -1; cachedLowG_ = -1; cachedLowQ_ = -1; cachedLowType_ = -1;
+    cachedMidF_ = -1; cachedMidG_ = -1; cachedMidQ_ = -1; cachedMidType_ = -1;
+    cachedHiF_ = -1; cachedHiG_ = -1; cachedHiQ_ = -1; cachedHiType_ = -1;
+    cachedHpfSlope_ = -1; cachedLpfSlope_ = -1;
+    cachedLowrideBoost_ = -1;
+    cachedPreLpf_ = -1;
+
     updateEQ();
 }
 
@@ -195,6 +207,14 @@ void BZideProcessor::releaseResources() {}
 void BZideProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiBuffer&)
 {
     juce::ScopedNoDenormals noDenormals;
+
+    // Apply pending insert swap on audio thread (FIX 8)
+    {
+        int swapA = pendingSwapA_.exchange(-1);
+        int swapB = pendingSwapB_.exchange(-1);
+        if (swapA >= 0 && swapB >= 0 && swapA < numInsertSlots && swapB < numInsertSlots)
+            std::swap(insertSlots_[swapA], insertSlots_[swapB]);
+    }
 
     // License check
     auto status = getLicenseStatus();
@@ -355,8 +375,13 @@ void BZideProcessor::updateEQ()
     auto sr = currentSampleRate_;
     if (sr <= 0) return;
 
+    // FIX 1: Only recalculate coefficients for bands whose params actually changed
+
     // HPF — slope controls Q: 0=6dB(gentle), 1=12dB(Butterworth), 2=18dB(steep)
+    if (std::abs(hpf - cachedHpf_) > 0.5f || cachedHpfSlope_ != hpfSlope)
     {
+        cachedHpf_ = hpf;
+        cachedHpfSlope_ = hpfSlope;
         float hpfQ = (hpfSlope == 0) ? 0.5f : (hpfSlope == 2) ? 1.3f : 0.707f;
         auto hpfCoeffs = juce::dsp::IIR::Coefficients<float>::makeHighPass(sr, hpf, hpfQ);
         *leftEQ_.get<0>().coefficients = *hpfCoeffs;
@@ -364,7 +389,10 @@ void BZideProcessor::updateEQ()
     }
 
     // Low band — dynamic curve type
+    if (std::abs(lowF - cachedLowF_) > 0.5f || std::abs(lowG - cachedLowG_) > 0.05f ||
+        std::abs(lowQ - cachedLowQ_) > 0.005f || lowType != cachedLowType_)
     {
+        cachedLowF_ = lowF; cachedLowG_ = lowG; cachedLowQ_ = lowQ; cachedLowType_ = lowType;
         juce::ReferenceCountedObjectPtr<juce::dsp::IIR::Coefficients<float>> coeffs;
         if (lowType == 0)
             coeffs = juce::dsp::IIR::Coefficients<float>::makeLowShelf(sr, lowF, lowQ, juce::Decibels::decibelsToGain(lowG));
@@ -377,7 +405,10 @@ void BZideProcessor::updateEQ()
     }
 
     // Mid band — dynamic curve type
+    if (std::abs(midF - cachedMidF_) > 0.5f || std::abs(midG - cachedMidG_) > 0.05f ||
+        std::abs(midQ - cachedMidQ_) > 0.005f || midType != cachedMidType_)
     {
+        cachedMidF_ = midF; cachedMidG_ = midG; cachedMidQ_ = midQ; cachedMidType_ = midType;
         juce::ReferenceCountedObjectPtr<juce::dsp::IIR::Coefficients<float>> coeffs;
         if (midType == 0)
             coeffs = juce::dsp::IIR::Coefficients<float>::makeLowShelf(sr, midF, midQ, juce::Decibels::decibelsToGain(midG));
@@ -390,7 +421,10 @@ void BZideProcessor::updateEQ()
     }
 
     // High band — dynamic curve type
+    if (std::abs(hiF - cachedHiF_) > 0.5f || std::abs(hiG - cachedHiG_) > 0.05f ||
+        std::abs(hiQ - cachedHiQ_) > 0.005f || highType != cachedHiType_)
     {
+        cachedHiF_ = hiF; cachedHiG_ = hiG; cachedHiQ_ = hiQ; cachedHiType_ = highType;
         juce::ReferenceCountedObjectPtr<juce::dsp::IIR::Coefficients<float>> coeffs;
         if (highType == 0)
             coeffs = juce::dsp::IIR::Coefficients<float>::makeLowShelf(sr, hiF, hiQ, juce::Decibels::decibelsToGain(hiG));
@@ -403,7 +437,10 @@ void BZideProcessor::updateEQ()
     }
 
     // LPF — slope controls Q: 0=6dB(gentle), 1=12dB(Butterworth), 2=18dB(steep)
+    if (std::abs(lpf - cachedLpf_) > 0.5f || cachedLpfSlope_ != lpfSlope)
     {
+        cachedLpf_ = lpf;
+        cachedLpfSlope_ = lpfSlope;
         float lpfQ = (lpfSlope == 0) ? 0.5f : (lpfSlope == 2) ? 1.3f : 0.707f;
         auto lpfCoeffs = juce::dsp::IIR::Coefficients<float>::makeLowPass(sr, lpf, lpfQ);
         *leftEQ_.get<4>().coefficients = *lpfCoeffs;
@@ -433,11 +470,11 @@ void BZideProcessor::processPre(juce::AudioBuffer<float>& buffer)
     float outputDb = *apvts.getRawParameterValue("pre_output");
     float outputGain = juce::Decibels::decibelsToGain(outputDb);
 
-    // Save dry signal for mix
-    juce::AudioBuffer<float> dryBuffer;
+    // Save dry signal for mix (FIX 2: use pre-allocated buffer, no heap alloc)
     if (mixPct < 0.99f)
     {
-        dryBuffer.makeCopyOf(buffer);
+        for (int ch = 0; ch < buffer.getNumChannels(); ++ch)
+            preDryBuffer_.copyFrom(ch, 0, buffer, ch, 0, buffer.getNumSamples());
     }
 
     // Apply input gain
@@ -457,7 +494,7 @@ void BZideProcessor::processPre(juce::AudioBuffer<float>& buffer)
         for (int ch = 0; ch < buffer.getNumChannels(); ++ch)
         {
             auto* wet = buffer.getWritePointer(ch);
-            auto* dry = dryBuffer.getReadPointer(ch);
+            auto* dry = preDryBuffer_.getReadPointer(ch);
             for (int i = 0; i < buffer.getNumSamples(); ++i)
                 wet[i] = dry[i] * (1.0f - mixPct) + wet[i] * mixPct;
         }
@@ -469,9 +506,14 @@ void BZideProcessor::processPre(juce::AudioBuffer<float>& buffer)
     {
         int lrDb = static_cast<int>(*apvts.getRawParameterValue("pre_lowride_db"));
         float boost = (lrDb == 0) ? 2.0f : 4.0f;
-        auto coeffs = juce::dsp::IIR::Coefficients<float>::makeLowShelf(currentSampleRate_, 40.0, 0.707, juce::Decibels::decibelsToGain(boost));
-        *lowrideL_.coefficients = *coeffs;
-        *lowrideR_.coefficients = *coeffs;
+        // FIX 4: only recalculate coefficients when boost changes
+        if (std::abs(boost - cachedLowrideBoost_) > 0.01f)
+        {
+            cachedLowrideBoost_ = boost;
+            auto coeffs = juce::dsp::IIR::Coefficients<float>::makeLowShelf(currentSampleRate_, 40.0, 0.707, juce::Decibels::decibelsToGain(boost));
+            *lowrideL_.coefficients = *coeffs;
+            *lowrideR_.coefficients = *coeffs;
+        }
 
         for (int i = 0; i < buffer.getNumSamples(); ++i)
         {
@@ -485,9 +527,14 @@ void BZideProcessor::processPre(juce::AudioBuffer<float>& buffer)
     float lpfFreq = *apvts.getRawParameterValue("pre_lpf");
     if (lpfFreq < 19999.0f)
     {
-        auto coeffs = juce::dsp::IIR::Coefficients<float>::makeLowPass(currentSampleRate_, lpfFreq);
-        *preLpfL_.coefficients = *coeffs;
-        *preLpfR_.coefficients = *coeffs;
+        // FIX 5: only recalculate coefficients when freq changes
+        if (std::abs(lpfFreq - cachedPreLpf_) > 1.0f)
+        {
+            cachedPreLpf_ = lpfFreq;
+            auto coeffs = juce::dsp::IIR::Coefficients<float>::makeLowPass(currentSampleRate_, lpfFreq);
+            *preLpfL_.coefficients = *coeffs;
+            *preLpfR_.coefficients = *coeffs;
+        }
 
         for (int i = 0; i < buffer.getNumSamples(); ++i)
         {
@@ -627,7 +674,9 @@ void BZideProcessor::swapInserts(int indexA, int indexB)
     if (indexA < 0 || indexA >= numInsertSlots) return;
     if (indexB < 0 || indexB >= numInsertSlots) return;
     if (indexA == indexB) return;
-    std::swap(insertSlots_[indexA], insertSlots_[indexB]);
+    // FIX 8: defer swap to audio thread to avoid race condition
+    pendingSwapA_.store(indexA);
+    pendingSwapB_.store(indexB);
 }
 
 void BZideProcessor::processInserts(juce::AudioBuffer<float>& buffer)
