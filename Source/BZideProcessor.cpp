@@ -190,8 +190,10 @@ void BZideProcessor::prepareToPlay(double sampleRate, int samplesPerBlock)
     // Pre-allocate dry buffer (FIX 2)
     preDryBuffer_.setSize(2, samplesPerBlock);
 
-    // Report limiter latency to host for PDC (plugin delay compensation)
-    setLatencySamples(limiter_.getLatencySamples());
+    // Report total latency to host for PDC (plugin delay compensation)
+    // Oversampling (anti-aliasing filters) + Limiter look-ahead
+    int totalLatency = limiter_.getLatencySamples() + saturation_.getLatencySamples();
+    setLatencySamples(totalLatency);
 
     // Re-prepare loaded insert slots to reset internal state between renders
     for (int i = 0; i < numInsertSlots; ++i)
@@ -256,10 +258,12 @@ void BZideProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiBu
         inputLevelR.store(juce::Decibels::gainToDecibels(rmsR, -100.0f));
     }
 
-    // Master bypass (IN button)
+    // Master bypass (IN button) — still applies limiter delay for PDC alignment
     if (*apvts.getRawParameterValue("master_bypass") > 0.5f)
     {
         buffer.clear();
+        limiter_.setBypass(true);
+        limiter_.process(buffer); // apply delay even when bypassed
         outputLevelL.store(-100.0f);
         outputLevelR.store(-100.0f);
         return;

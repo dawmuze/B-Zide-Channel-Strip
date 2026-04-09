@@ -113,4 +113,7 @@ private:
 
     // Tone filters (proper LPF instead of crude blend)
     juce::dsp::IIR::Filter<float> toneFilterL_, toneFilterR_;
+
+public:
+    int getLatencySamples() const { return oversampling_ ? (int)oversampling_->getLatencyInSamples() : 0; }
 };

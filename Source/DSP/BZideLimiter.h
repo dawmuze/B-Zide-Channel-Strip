@@ -29,9 +29,9 @@ public:
 
     void process(juce::AudioBuffer<float>& buffer)
     {
-        if (bypass_) { gainReduction_ = 0.0f; return; }
-
-        float threshLin = juce::Decibels::decibelsToGain(threshold_);
+        float threshLin = bypass_ ? 100.0f : juce::Decibels::decibelsToGain(threshold_);
+        if (bypass_) gainReduction_ = 0.0f;
+        // Always process (including delay) even when bypassed, for PDC alignment
         float attackCoeff = std::exp(-1.0f / (float)(sr_ * 0.0001)); // ~0.1ms
         float relSec = releaseMs_ * 0.001f;
         float releaseCoeff = std::exp(-1.0f / (float)(sr_ * (double)relSec));
