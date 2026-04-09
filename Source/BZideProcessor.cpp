@@ -13,17 +13,8 @@ BZideProcessor::BZideProcessor()
     else if (licenseValidator_.isTrial())
         licenseValidator_.checkTrial();
 
-    // Initialize plugin hosting
-    juce::addDefaultFormatsToManager(formatManager_);
-
-    // Load cached plugin list
-    auto cacheFile = juce::File::getSpecialLocation(juce::File::userApplicationDataDirectory)
-        .getChildFile("Dawmuze").getChildFile("plugin-cache.xml");
-    if (cacheFile.existsAsFile())
-    {
-        if (auto xml = juce::parseXML(cacheFile))
-            knownPlugins_.recreateFromXml(*xml);
-    }
+    // Plugin hosting initialized lazily on first scan request
+    // (addDefaultFormatsToManager can be slow on some systems)
 }
 
 BZideProcessor::~BZideProcessor() {}
@@ -826,6 +817,22 @@ void BZideProcessor::processInserts(juce::AudioBuffer<float>& buffer)
 
 void BZideProcessor::scanForPlugins()
 {
+    // Lazy init: add formats only on first scan
+    if (formatManager_.getNumFormats() == 0)
+        juce::addDefaultFormatsToManager(formatManager_);
+
+    // Also load cache first (if not already loaded)
+    if (knownPlugins_.getNumTypes() == 0)
+    {
+        auto cacheFile = juce::File::getSpecialLocation(juce::File::userApplicationDataDirectory)
+            .getChildFile("Dawmuze").getChildFile("plugin-cache.xml");
+        if (cacheFile.existsAsFile())
+        {
+            if (auto xml = juce::parseXML(cacheFile))
+                knownPlugins_.recreateFromXml(*xml);
+        }
+    }
+
     for (auto* format : formatManager_.getFormats())
     {
         auto paths = format->getDefaultLocationsToSearch();
@@ -854,6 +861,10 @@ void BZideProcessor::scanForPlugins()
 void BZideProcessor::loadExternalPlugin(int slotIndex, const juce::PluginDescription& desc)
 {
     if (slotIndex < 0 || slotIndex >= numInsertSlots) return;
+
+    // Lazy init format manager
+    if (formatManager_.getNumFormats() == 0)
+        juce::addDefaultFormatsToManager(formatManager_);
 
     // Remove whatever was there
     if (isExternalPlugin_[slotIndex])
